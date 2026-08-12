@@ -1,0 +1,11 @@
+{
+	"name": "<project-name>", // adc init sets this to the repo directory name
+	"image": "ghcr.io/dbarjs/agent-devcontainer/node:latest", // swap `node` → `base` for non-Node projects (then drop forwardPorts + postCreateCommand)
+	"customizations": {
+		"vscode": {
+			"extensions": [] // project extras; the baseline set comes from image metadata
+		}
+	},
+	"forwardPorts": [3000],
+	"postCreateCommand": "ni"
+}
