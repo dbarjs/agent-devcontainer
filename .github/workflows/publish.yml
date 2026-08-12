@@ -60,6 +60,7 @@ jobs:
         run: |
           devcontainer build \
             --workspace-folder images/base \
+            --config images/base/devcontainer.json \
             --platform linux/amd64,linux/arm64 \
             --push \
             --image-name "$REGISTRY_BASE/base:latest" \
@@ -69,6 +70,7 @@ jobs:
         run: |
           devcontainer build \
             --workspace-folder images/node \
+            --config images/node/devcontainer.json \
             --platform linux/amd64,linux/arm64 \
             --push \
             --image-name "$REGISTRY_BASE/node:latest" \
