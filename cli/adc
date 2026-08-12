@@ -1,0 +1,105 @@
+#!/usr/bin/env zsh
+# adc — agent-devcontainer CLI.
+# Reaches users two ways: baked into the prebuilt images at /usr/local/bin,
+# and on the host via the repo's Sheldon plugin (adc.plugin.zsh).
+emulate -L zsh
+set -eu
+set -o pipefail
+
+script_dir="${0:A:h}"
+
+# The vendored template, wherever this copy of adc lives: next to the script
+# in a repo checkout (Sheldon plugin), or at the shared path baked into images.
+template_candidates=(
+	"${script_dir:h}/templates/devcontainer.json"
+	"/usr/local/share/adc/templates/devcontainer.json"
+)
+
+die() {
+	print -ru2 -- "adc: $1"
+	exit 1
+}
+
+usage() {
+	cat <<'EOF'
+adc — agent-devcontainer CLI
+
+Usage: adc <command> [args]
+
+Commands:
+  init [dir] [--force]  Write the devcontainer template into a project
+                        (default: current directory)
+  sync                  Sync the identity repo onto the identity volume
+  apply                 Apply identity files from the identity volume
+  upgrade               Bootstrap or upgrade the shared Claude Code install
+  doctor                Diagnose setup
+
+sync, apply, upgrade, and doctor are not implemented yet
+(tracked in dbarjs/agent-devcontainer#15).
+EOF
+}
+
+find_template() {
+	local candidate
+	for candidate in "${template_candidates[@]}"; do
+		if [[ -f "$candidate" ]]; then
+			print -r -- "$candidate"
+			return 0
+		fi
+	done
+	return 1
+}
+
+cmd_init() {
+	local force=0 target="" arg
+	for arg in "$@"; do
+		case "$arg" in
+			-f|--force) force=1 ;;
+			-h|--help) usage; return 0 ;;
+			-*) die "init: unknown option '$arg'" ;;
+			*)
+				[[ -n "$target" ]] && die "init: expected at most one directory argument"
+				target="$arg"
+				;;
+		esac
+	done
+
+	target="${target:-$PWD}"
+	[[ -d "$target" ]] || die "init: '$target' is not a directory"
+	target="${target:A}"
+
+	local name="${target:t}"
+	local dest="$target/.devcontainer/devcontainer.json"
+	if [[ -e "$dest" && $force -eq 0 ]]; then
+		die "init: $dest already exists (use --force to overwrite)"
+	fi
+
+	local template
+	template="$(find_template)" || die "init: vendored template not found (looked in: ${(j:, :)template_candidates})"
+
+	mkdir -p "${dest:h}"
+	local content
+	content="$(<"$template")"
+	print -r -- "${content//<project-name>/$name}" > "$dest"
+
+	print -r -- "Wrote $dest (name: $name)"
+	print -r -- "Open the project in VS Code and \"Reopen in Container\"."
+}
+
+not_implemented() {
+	die "'$1' is not implemented yet (tracked in dbarjs/agent-devcontainer#15)"
+}
+
+main() {
+	(( $# >= 1 )) || { usage; exit 1 }
+	local cmd="$1"
+	shift
+	case "$cmd" in
+		init) cmd_init "$@" ;;
+		sync|apply|upgrade|doctor) not_implemented "$cmd" ;;
+		-h|--help|help) usage ;;
+		*) die "unknown command '$cmd' (run 'adc --help')" ;;
+	esac
+}
+
+main "$@"
