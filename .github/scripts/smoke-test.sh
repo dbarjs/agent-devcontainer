@@ -39,10 +39,14 @@ fi
 echo "(*) Claude bootstrap script present"
 run test -x /usr/local/share/agent-devcontainer/claude-bootstrap.sh
 
+echo "(*) adc CLI baked in with its template"
+run adc --help
+run test -f /usr/local/share/adc/templates/devcontainer.json
+
 echo "(*) Devcontainer metadata label"
 metadata="$(docker inspect --format '{{ index .Config.Labels "devcontainer.metadata" }}' "$IMAGE_REF")"
 echo "$metadata" | jq -e . > /dev/null # valid JSON
-for needle in command-history claude-bootstrap docker-in-docker; do
+for needle in command-history identity claude-bootstrap docker-in-docker; do
     if ! grep -q "$needle" <<< "$metadata"; then
         echo "devcontainer.metadata label is missing '$needle':"
         echo "$metadata"

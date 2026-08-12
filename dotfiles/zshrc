@@ -9,6 +9,14 @@
 export STARSHIP_CONFIG=~/.config/starship.toml
 export PATH="$PATH:$HOME/.local/bin"
 
+# Identity self-heal: a fresh container whose shared identity volume already
+# holds a clone (from a sync in any earlier container) gets the offline apply
+# — no network, no agent-timing dependency.
+if [[ -d "$HOME/.local/share/identity/.git" && ! -f "$HOME/.ssh/config" ]] \
+    && command -v adc > /dev/null; then
+  adc apply
+fi
+
 # NVM (present only in the node image)
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"

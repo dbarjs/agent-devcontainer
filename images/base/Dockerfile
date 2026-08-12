@@ -64,6 +64,7 @@ RUN install -d -o "$USER_UID" -g "$USER_GID" \
         "/home/$USERNAME/.local/state/history/zoxide" \
         "/home/$USERNAME/.local/share" \
         "/home/$USERNAME/.local/share/claude" \
+        "/home/$USERNAME/.local/share/identity" \
         "/home/$USERNAME/.local/bin" \
         "/home/$USERNAME/.claude"
 
@@ -76,6 +77,11 @@ COPY --chown=$USER_UID:$USER_GID dotfiles/starship.toml /home/$USERNAME/.config/
 # Claude Code first-run bootstrap (wired as onCreateCommand in devcontainer.json)
 COPY images/base/claude-bootstrap.sh /usr/local/share/agent-devcontainer/claude-bootstrap.sh
 RUN chmod 755 /usr/local/share/agent-devcontainer/claude-bootstrap.sh
+
+# adc CLI + the vendored template its `init` verb writes
+COPY cli/adc /usr/local/bin/adc
+COPY templates/ /usr/local/share/adc/templates/
+RUN chmod 755 /usr/local/bin/adc
 
 # prefetch sheldon plugins so the first shell opens instantly
 USER $USERNAME

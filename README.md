@@ -33,10 +33,21 @@ Copy [`templates/devcontainer.json`](templates/devcontainer.json) into the proje
 
 The template references the `node` image. For non-Node projects, swap the image to `.../base:latest` and drop the `forwardPorts` and `postCreateCommand` lines — the inline comments in the template point this out.
 
+## Inside the container
+
+`adc` is baked into the images at `/usr/local/bin`, with three container-only verbs plus a diagnostic:
+
+- `adc sync` — clone-or-pull the private identity repo (`git@github.com:dbarjs/identity.git`, override with `ADC_IDENTITY_REPO`) onto the shared `identity` volume, then apply. Runs over the forwarded 1Password SSH agent, so it needs `SSH_AUTH_SOCK` exported on the host. One sync serves every container: the volume is shared, and the vendored zshrc auto-applies it in fresh containers.
+- `adc apply` — offline copy from the volume into place: `ssh/` → `~/.ssh` (700/600), `git/` → `~/.config/git/`. Normally you never run it by hand — the zshrc self-heal does.
+- `adc upgrade` — bootstrap Claude Code onto the shared install volume if it's empty, otherwise `claude update`. Either way, every container sharing the volume gets it.
+- `adc doctor` — pass/fail checks with fixes. In a container: agent forwarded, identity applied, Claude Code installed, `gh` authenticated, docker reachable. On the host (via the Sheldon plugin): `SSH_AUTH_SOCK` → 1Password socket, agent alive, Docker running.
+
+The container-only verbs refuse to run on the host — there they would overwrite the real `~/.ssh` and `~/.config/git`.
+
 ## Repo layout
 
 - `templates/` — the vendored per-project devcontainer template.
 - `images/` — prebuild definitions for the `base` and `node` images.
 - `dotfiles/` — container-adapted rc files (zshrc, Sheldon plugins, Starship) baked into the images.
-- `cli/` — the `adc` CLI (`init` today; `sync`/`apply`/`upgrade`/`doctor` to come).
+- `cli/` — the `adc` CLI (`init`, `sync`, `apply`, `upgrade`, `doctor`).
 - `CONTEXT.md` — domain glossary; `docs/adr/` — decisions.
