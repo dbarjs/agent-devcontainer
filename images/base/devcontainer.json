@@ -19,6 +19,26 @@
 			"source": "identity",
 			"target": "/home/vscode/.local/share/identity",
 			"type": "volume"
+		},
+		{
+			"source": "claude-config",
+			"target": "/home/vscode/.claude",
+			"type": "volume"
+		},
+		{
+			"source": "gh-config",
+			"target": "/home/vscode/.config/gh",
+			"type": "volume"
+		},
+		{
+			"source": "claude-install",
+			"target": "/home/vscode/.local/share/claude",
+			"type": "volume"
+		},
+		{
+			"source": "claude-bin",
+			"target": "/home/vscode/.local/bin",
+			"type": "volume"
 		}
 	],
 	"onCreateCommand": "/usr/local/share/agent-devcontainer/claude-bootstrap.sh",
