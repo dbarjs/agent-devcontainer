@@ -37,5 +37,25 @@ The shared volume holding zsh history and the zoxide database, so one shell hist
 _Avoid_: History cache
 
 **Identity repo**:
-The separate private repo holding git + SSH identity (host aliases, public keys, conditional-include gitconfigs), synced into containers rather than baked into images.
+The separate private repo holding git + SSH identity (host aliases, public keys, conditional-include gitconfigs) as final-form files, synced into containers rather than baked into images.
 _Avoid_: Dotfiles repo, secrets repo
+
+**Identity volume**:
+The shared volume holding the identity repo clone, so one sync serves every container and fresh containers can apply identity offline.
+_Avoid_: Identity cache
+
+**Sync**:
+Pulling the identity repo onto the identity volume (needs the forwarded agent) and then applying it — the network half of identity delivery.
+_Avoid_: Install, clone (alone)
+
+**Apply**:
+Copying identity files from the identity volume into a container's home with tight permissions — the offline half; runs automatically in fresh containers.
+_Avoid_: Symlink, deploy
+
+**adc**:
+The environment-aware CLI this repo ships — baked into images and Sheldon-installable on the host — whose verbs sync and apply identity, upgrade the shared Claude Code, and diagnose setup; container-only verbs refuse to run on the host.
+_Avoid_: Helper scripts, devcontainer CLI (that's the external `devcontainer` tool)
+
+**Forwarded agent**:
+The host SSH agent (1Password) reaching the container over the Dev Containers extension's own channel, keyed off the host's SSH_AUTH_SOCK — the root of trust for cloning, pushing, and commit signing.
+_Avoid_: Mounted socket, agent socket mount
