@@ -15,6 +15,12 @@ template_candidates=(
 	"/usr/local/share/adc/templates/devcontainer.json"
 )
 
+identity_repo_default="git@github.com:dbarjs/identity.git"
+identity_dir="$HOME/.local/share/identity"
+claude_install_dir="$HOME/.local/share/claude"
+claude_bootstrap="/usr/local/share/agent-devcontainer/claude-bootstrap.sh"
+op_agent_sock="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+
 die() {
 	print -ru2 -- "adc: $1"
 	exit 1
@@ -29,15 +35,44 @@ Usage: adc <command> [args]
 Commands:
   init [dir] [--force]  Write the devcontainer template into a project
                         (default: current directory)
-  sync                  Sync the identity repo onto the identity volume
-  apply                 Apply identity files from the identity volume
+  sync                  Clone-or-pull the identity repo onto the identity
+                        volume, then apply (container only)
+  apply                 Copy identity files from the volume into place,
+                        offline (container only)
   upgrade               Bootstrap or upgrade the shared Claude Code install
-  doctor                Diagnose setup
+                        (container only)
+  doctor                Pass/fail checks for this environment, with fixes
 
-sync, apply, upgrade, and doctor are not implemented yet
-(tracked in dbarjs/agent-devcontainer#15).
+Environment:
+  ADC_IDENTITY_REPO     Identity repo clone URL
+                        (default: git@github.com:dbarjs/identity.git)
 EOF
 }
+
+# ---------------------------------------------------------------------------
+# environment detection
+
+in_container() {
+	[[ -f /.dockerenv || -f /run/.containerenv || -n "${REMOTE_CONTAINERS:-}" || -n "${CODESPACES:-}" ]]
+}
+
+# sync/apply/upgrade manage container-side state (~/.ssh, ~/.config/git, the
+# shared install volume); on the host they would clobber the real ones.
+require_container() {
+	in_container || die "'$1' runs inside a container only — on the host it would overwrite ~/.ssh and ~/.config/git"
+}
+
+# True when an SSH agent is reachable: ssh-add -l exits 0 (keys) or 1 (no
+# keys); 2 means no agent behind the socket.
+agent_alive() {
+	[[ -S "${SSH_AUTH_SOCK:-}" ]] || return 1
+	local rc=0
+	ssh-add -l >/dev/null 2>&1 || rc=$?
+	(( rc != 2 ))
+}
+
+# ---------------------------------------------------------------------------
+# init
 
 find_template() {
 	local candidate
@@ -86,9 +121,134 @@ cmd_init() {
 	print -r -- "Open the project in VS Code and \"Reopen in Container\"."
 }
 
-not_implemented() {
-	die "'$1' is not implemented yet (tracked in dbarjs/agent-devcontainer#15)"
+# ---------------------------------------------------------------------------
+# sync / apply
+
+cmd_sync() {
+	require_container sync
+	agent_alive || die "sync: no SSH agent on SSH_AUTH_SOCK — the clone runs over the forwarded 1Password agent.
+Fix: on the Mac, export SSH_AUTH_SOCK to the 1Password socket in ~/.zshrc
+(see the dbarjs/identity README), then rebuild the container connection."
+
+	local repo="${ADC_IDENTITY_REPO:-$identity_repo_default}"
+	if [[ -d "$identity_dir/.git" ]]; then
+		print -r -- "sync: updating identity clone at $identity_dir"
+		git -C "$identity_dir" pull --ff-only
+	else
+		print -r -- "sync: cloning $repo -> $identity_dir"
+		# accept-new: fresh containers have no known_hosts yet; changed keys still fail
+		GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new" \
+			git clone "$repo" "$identity_dir"
+	fi
+	cmd_apply
 }
+
+cmd_apply() {
+	require_container apply
+	[[ -d "$identity_dir/.git" ]] || die "apply: no identity clone at $identity_dir — run 'adc sync' first"
+
+	if [[ -d "$identity_dir/ssh" ]]; then
+		mkdir -p "$HOME/.ssh"
+		cp -R "$identity_dir/ssh/." "$HOME/.ssh/"
+		find "$HOME/.ssh" -type d -exec chmod 700 {} +
+		find "$HOME/.ssh" -type f -exec chmod 600 {} +
+		print -r -- "apply: ssh/ -> ~/.ssh (700/600)"
+	fi
+
+	if [[ -d "$identity_dir/git" ]]; then
+		mkdir -p "$HOME/.config/git"
+		cp -R "$identity_dir/git/." "$HOME/.config/git/"
+		print -r -- "apply: git/ -> ~/.config/git/"
+	fi
+
+	print -r -- "apply: done"
+}
+
+# ---------------------------------------------------------------------------
+# upgrade
+
+cmd_upgrade() {
+	require_container upgrade
+	if [[ -z "$(ls -A "$claude_install_dir" 2>/dev/null)" ]]; then
+		print -r -- "upgrade: shared install volume is empty; bootstrapping Claude Code"
+		if [[ -x "$claude_bootstrap" ]]; then
+			"$claude_bootstrap"
+		else
+			curl -fsSL https://claude.ai/install.sh | bash
+		fi
+	else
+		# every container mounting the shared volume gets this upgrade
+		local claude_bin
+		claude_bin="$(command -v claude)" || claude_bin="$HOME/.local/bin/claude"
+		[[ -x "$claude_bin" ]] || die "upgrade: install volume is non-empty but no claude binary at $claude_bin"
+		"$claude_bin" update
+	fi
+}
+
+# ---------------------------------------------------------------------------
+# doctor
+
+doctor_failures=0
+
+check() {
+	local name="$1" fix="$2"
+	shift 2
+	if "$@" >/dev/null 2>&1; then
+		print -r -- "  ok    $name"
+	else
+		print -r -- "  FAIL  $name"
+		print -r -- "        fix: $fix"
+		doctor_failures=$(( doctor_failures + 1 ))
+	fi
+}
+
+have_claude() {
+	command -v claude >/dev/null 2>&1 || [[ -x "$HOME/.local/bin/claude" ]]
+}
+
+sock_is_1password() {
+	[[ "${SSH_AUTH_SOCK:-}" == "$op_agent_sock" && -S "$op_agent_sock" ]]
+}
+
+cmd_doctor() {
+	if in_container; then
+		print -r -- "adc doctor (container)"
+		check "SSH agent forwarded" \
+			"export SSH_AUTH_SOCK to the 1Password socket on the host, then rebuild the container connection" \
+			agent_alive
+		check "identity applied (~/.ssh/config)" \
+			"run 'adc sync' (first time) or 'adc apply' (volume already synced)" \
+			test -f "$HOME/.ssh/config"
+		check "Claude Code installed" \
+			"run 'adc upgrade' to bootstrap the shared install volume" \
+			have_claude
+		check "gh authenticated" \
+			"run 'gh auth login' (persists on the shared gh volume)" \
+			gh auth status
+		check "docker reachable" \
+			"docker-in-docker should start with the container — rebuild the container, then check 'docker info'" \
+			docker info
+	else
+		print -r -- "adc doctor (host)"
+		check "SSH_AUTH_SOCK points at the 1Password socket" \
+			"add to ~/.zshrc: export SSH_AUTH_SOCK=\"\$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock\"" \
+			sock_is_1password
+		check "SSH agent alive" \
+			"enable Settings > Developer > SSH agent in 1Password, then restart the shell" \
+			agent_alive
+		check "Docker running" \
+			"start Docker Desktop (or OrbStack)" \
+			docker info
+	fi
+
+	if (( doctor_failures > 0 )); then
+		print -r -- "$doctor_failures check(s) failed"
+		return 1
+	fi
+	print -r -- "all checks passed"
+}
+
+# ---------------------------------------------------------------------------
 
 main() {
 	(( $# >= 1 )) || { usage; exit 1 }
@@ -96,7 +256,10 @@ main() {
 	shift
 	case "$cmd" in
 		init) cmd_init "$@" ;;
-		sync|apply|upgrade|doctor) not_implemented "$cmd" ;;
+		sync) cmd_sync "$@" ;;
+		apply) cmd_apply "$@" ;;
+		upgrade) cmd_upgrade "$@" ;;
+		doctor) cmd_doctor "$@" ;;
 		-h|--help|help) usage ;;
 		*) die "unknown command '$cmd' (run 'adc --help')" ;;
 	esac
