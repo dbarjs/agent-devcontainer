@@ -1,0 +1,7 @@
+{
+	"name": "agent-devcontainer node (prebuild)",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	"remoteUser": "vscode"
+}

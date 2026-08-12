@@ -1,0 +1,25 @@
+{
+	"name": "agent-devcontainer base (prebuild)",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"context": "../.."
+	},
+	"features": {
+		"ghcr.io/devcontainers/features/docker-in-docker:2": {
+			"moby": false
+		}
+	},
+	"mounts": [
+		{
+			"source": "command-history",
+			"target": "/home/vscode/.local/state/history",
+			"type": "volume"
+		}
+	],
+	"onCreateCommand": "/usr/local/share/agent-devcontainer/claude-bootstrap.sh",
+	"containerEnv": {
+		"CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+		"DISABLE_AUTOUPDATER": "1"
+	},
+	"remoteUser": "vscode"
+}

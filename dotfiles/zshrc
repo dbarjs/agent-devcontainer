@@ -1,0 +1,44 @@
+# Vendored container zshrc — adapted from the Mac ~/.zshrc.
+# Tools are baked into the image:
+# - starship: https://starship.rs/
+# - sheldon: https://sheldon.cli.rs/
+# - fzf: https://github.com/junegunn/fzf
+# - zoxide: https://github.com/ajeetdsouza/zoxide
+
+# Environment variables
+export STARSHIP_CONFIG=~/.config/starship.toml
+export PATH="$PATH:$HOME/.local/bin"
+
+# NVM (present only in the node image)
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
+# Completion system — must run before plugins (ohmyzsh git plugin uses compdef)
+autoload -Uz compinit && compinit
+
+# Load plugins
+eval "$(sheldon source)"
+
+# Shared command-history volume: the named volume `command-history` is mounted
+# at ~/.local/state/history (declared in the base image metadata), so zsh
+# history and zoxide frecency survive rebuilds and are shared across projects.
+# Must come after sheldon: the dbarjs/zsh history-config plugin sets its own
+# HISTFILE/HISTSIZE/SAVEHIST and these override it.
+export HISTFILE="$HOME/.local/state/history/.zsh_history"
+export _ZO_DATA_DIR="$HOME/.local/state/history/zoxide"
+HISTSIZE=50000
+SAVEHIST=50000
+setopt inc_append_history share_history hist_ignore_dups
+
+# Starship prompt
+eval "$(starship init zsh)"
+
+if command -v zsh-defer > /dev/null; then
+  zsh-defer -c "source <(fzf --zsh)"
+  zsh-defer -c 'eval "$(zoxide init zsh)"'
+else
+  # Fallback when zsh-defer is not installed
+  source <(fzf --zsh)
+  eval "$(zoxide init zsh)"
+fi
