@@ -1,0 +1,111 @@
+# Prebuilds and publishes the image suite to GHCR (spec: issue #7).
+# base must publish before node: node's Dockerfile is FROM base:latest.
+# No build cache on purpose — the weekly rebuild exists to pull fresh apt
+# security updates, which a reused apt layer would silently skip.
+name: Publish images
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: publish-images
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY_BASE: ghcr.io/dbarjs/agent-devcontainer
+
+jobs:
+  publish:
+    name: Build & push (multi-arch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      date-tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Free runner disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute date tag
+        id: tag
+        run: echo "tag=$(date -u +%Y.%m.%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install devcontainer CLI
+        run: npm install -g @devcontainers/cli
+
+      - name: Build & push base
+        run: |
+          devcontainer build \
+            --workspace-folder images/base \
+            --platform linux/amd64,linux/arm64 \
+            --push \
+            --image-name "$REGISTRY_BASE/base:latest" \
+            --image-name "$REGISTRY_BASE/base:${{ steps.tag.outputs.tag }}"
+
+      - name: Build & push node
+        run: |
+          devcontainer build \
+            --workspace-folder images/node \
+            --platform linux/amd64,linux/arm64 \
+            --push \
+            --image-name "$REGISTRY_BASE/node:latest" \
+            --image-name "$REGISTRY_BASE/node:${{ steps.tag.outputs.tag }}"
+
+      - name: Verify multi-arch manifests
+        run: |
+          set -euo pipefail
+          for image in base node; do
+            docker buildx imagetools inspect \
+              "$REGISTRY_BASE/$image:${{ steps.tag.outputs.tag }}" | tee manifest.txt
+            grep -q 'linux/amd64' manifest.txt
+            grep -q 'linux/arm64' manifest.txt
+          done
+
+  smoke:
+    name: Smoke test (${{ matrix.image }})
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [base, node]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Smoke test published image
+        run: >-
+          .github/scripts/smoke-test.sh
+          "$REGISTRY_BASE/${{ matrix.image }}:${{ needs.publish.outputs.date-tag }}"
+          "${{ matrix.image }}"
