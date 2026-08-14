@@ -1,0 +1,5 @@
+# Three-tier harness-driven test suite in GitHub Actions
+
+Testing splits into three tiers by cost: (1) a **static tier** in seconds on every PR — `zsh -n` + bats-core for adc (shellcheck can't lint zsh), `devcontainer read-configuration` for template validation, stderr-gated `starship print-config` for the prompt config; (2) a **container-assertion tier** that builds the image and asserts binaries, versions, volume metadata, and clean zsh startup via a plain docker-run/inspect script — container-structure-test is in maintenance mode and goss can't see image metadata, so a hand-rolled script beats both; (3) an **e2e tier** on main/weekly, devcontainer CLI `up` + `exec` running a requirements checklist inside the live container, per the devcontainers/images idiom. ARM coverage rides the free `ubuntu-24.04-arm` runners.
+
+Decided while charting [map v2](https://github.com/dbarjs/agent-devcontainer/issues/20), informed by [issue #26](https://github.com/dbarjs/agent-devcontainer/issues/26) (`docs/research/test-harness.md` on the `research/test-harness` branch).
