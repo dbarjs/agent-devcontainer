@@ -26,6 +26,13 @@ if [ "$VARIANT" = "node" ]; then
     echo "(*) Node toolchain"
     run zsh -ilc 'node --version && npm --version \
         && command -v ni && command -v pnpm && command -v yarn'
+
+    echo "(*) pnpm install lands in the shared store, not the project"
+    run zsh -ilc 'set -e; cd "$(mktemp -d)" \
+        && printf "{\"name\":\"smoke\",\"version\":\"0.0.0\"}" > package.json \
+        && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm add is-odd \
+        && [ -n "$(ls /home/vscode/.local/share/pnpm-store)" ] \
+        && [ ! -e .pnpm-store ]'
 fi
 
 echo "(*) Interactive zsh starts warning-free"
@@ -46,7 +53,11 @@ run test -f /usr/local/share/adc/templates/devcontainer.json
 echo "(*) Devcontainer metadata label"
 metadata="$(docker inspect --format '{{ index .Config.Labels "devcontainer.metadata" }}' "$IMAGE_REF")"
 echo "$metadata" | jq -e . > /dev/null # valid JSON
-for needle in command-history identity claude-bootstrap docker-in-docker; do
+needles="command-history identity claude-bootstrap docker-in-docker"
+if [ "$VARIANT" = "node" ]; then
+    needles="$needles pnpm-store"
+fi
+for needle in $needles; do
     if ! grep -q "$needle" <<< "$metadata"; then
         echo "devcontainer.metadata label is missing '$needle':"
         echo "$metadata"

@@ -22,3 +22,14 @@ RUN mkdir -p "$NVM_DIR" \
     && corepack enable \
     && npm install -g @antfu/ni \
     && nvm cache clear
+
+# Shared pnpm store: the workspace is usually a bind mount on another
+# filesystem, so pnpm's same-disk store default would drop .pnpm-store into
+# the project root. Point the store at the pnpm-store volume instead (across
+# filesystems pnpm copies rather than hard-links — the price of one shared,
+# persistent store). Written as files, not npm_config_* env, which npm warns
+# on; both dialects because pnpm <=9 reads the ini rc, pnpm >=10 config.yaml.
+RUN store=/home/vscode/.local/share/pnpm-store \
+    && mkdir -p "$store" /home/vscode/.config/pnpm \
+    && printf 'store-dir=%s\n' "$store" > /home/vscode/.config/pnpm/rc \
+    && printf 'storeDir: %s\n' "$store" > /home/vscode/.config/pnpm/config.yaml
