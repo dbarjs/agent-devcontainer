@@ -41,6 +41,108 @@
 			"type": "volume"
 		}
 	],
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"anthropic.claude-code",
+				"editorconfig.editorconfig",
+				"ms-azuretools.vscode-docker",
+				"github.vscode-pull-request-github",
+				"eamodio.gitlens",
+				"aaron-bond.better-comments",
+				"antfu.file-nesting"
+			],
+			"settings": {
+				"cSpell.allowCompoundWords": true,
+				"cSpell.enabled": false,
+				"emmet.showSuggestionsAsSnippets": true,
+				"emmet.triggerExpansionOnTab": false,
+				"explorer.fileNesting.enabled": true,
+				"explorer.fileNesting.expand": false,
+				"fileNestingUpdater.autoUpdate": true,
+				"fileNestingUpdater.autoUpdateInterval": 720,
+				"fileNestingUpdater.promptOnAutoUpdate": false,
+				"fileNestingUpdater.upstreamBranch": "main",
+				"fileNestingUpdater.upstreamRepo": "antfu/vscode-file-nesting-config",
+				"files.eol": "\n",
+				"files.insertFinalNewline": true,
+				"git.autofetch": true,
+				"git.confirmSync": false,
+				"git.enableSmartCommit": true,
+				"git.untrackedChanges": "separate",
+				"gitlens.codeLens.authors.enabled": false,
+				"gitlens.codeLens.enabled": false,
+				"gitlens.codeLens.recentChange.enabled": false,
+				"gitlens.menus": {
+					"editor": {
+						"blame": false,
+						"clipboard": true,
+						"compare": true,
+						"history": false,
+						"remote": false
+					},
+					"editorGroup": {
+						"blame": true,
+						"compare": false
+					},
+					"editorTab": {
+						"clipboard": true,
+						"compare": true,
+						"history": true,
+						"remote": true
+					},
+					"explorer": {
+						"clipboard": true,
+						"compare": true,
+						"history": true,
+						"remote": true
+					},
+					"scm": {
+						"authors": true
+					},
+					"scmGroup": {
+						"compare": true,
+						"openClose": true,
+						"stash": true
+					},
+					"scmGroupInline": {
+						"stash": true
+					},
+					"scmItem": {
+						"clipboard": true,
+						"compare": true,
+						"history": true,
+						"remote": false,
+						"stash": true
+					}
+				},
+				"search.exclude": {
+					"**/*.snap": true,
+					"**/*.svg": true,
+					"**/.git": true,
+					"**/.github": false,
+					"**/.nuxt": true,
+					"**/.output": true,
+					"**/.pnpm": true,
+					"**/.vscode": true,
+					"**/.yarn": true,
+					"**/assets": true,
+					"**/bower_components": true,
+					"**/dist/**": true,
+					"**/logs": true,
+					"**/node_modules": true,
+					"**/out/**": true,
+					"**/package-lock.json": true,
+					"**/pnpm-lock.yaml": true,
+					"**/public": true,
+					"**/temp": true,
+					"**/yarn.lock": true,
+					"**/CHANGELOG*": true,
+					"**/LICENSE*": true
+				}
+			}
+		}
+	},
 	"onCreateCommand": "/usr/local/share/agent-devcontainer/claude-bootstrap.sh",
 	"containerEnv": {
 		"CLAUDE_CONFIG_DIR": "/home/vscode/.claude",

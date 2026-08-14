@@ -62,9 +62,9 @@ fi
 echo "(*) Devcontainer metadata label"
 metadata="$(docker inspect --format '{{ index .Config.Labels "devcontainer.metadata" }}' "$IMAGE_REF")"
 echo "$metadata" | jq -e . > /dev/null # valid JSON
-needles="command-history identity claude-bootstrap docker-in-docker"
+needles="command-history identity claude-bootstrap docker-in-docker anthropic.claude-code"
 if [ "$VARIANT" = "node" ]; then
-    needles="$needles pnpm-store"
+    needles="$needles pnpm-store dbaeumer.vscode-eslint"
 fi
 for needle in $needles; do
     if ! grep -q "$needle" <<< "$metadata"; then
