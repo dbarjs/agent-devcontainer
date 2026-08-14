@@ -31,5 +31,10 @@
 			}
 		}
 	},
+	"containerEnv": {
+		// keep ni deterministic in headless/agent sessions: fall back to npm
+		// instead of prompting when a project has no lockfile or packageManager
+		"NI_DEFAULT_AGENT": "npm"
+	},
 	"remoteUser": "vscode"
 }
