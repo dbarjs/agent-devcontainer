@@ -8,11 +8,12 @@ set -o pipefail
 
 script_dir="${0:A:h}"
 
-# The vendored template, wherever this copy of adc lives: next to the script
+# The vendored templates, wherever this copy of adc lives: next to the script
 # in a repo checkout (Sheldon plugin), or at the shared path baked into images.
-template_candidates=(
-	"${script_dir:h}/templates/devcontainer.json"
-	"/usr/local/share/adc/templates/devcontainer.json"
+# Each variant lives at <dir>/<variant>/devcontainer.json.
+template_dirs=(
+	"${script_dir:h}/templates"
+	"/usr/local/share/adc/templates"
 )
 
 identity_repo_default="git@github.com:dbarjs/identity.git"
@@ -33,19 +34,47 @@ adc — agent-devcontainer CLI
 Usage: adc <command> [args]
 
 Commands:
-  init [dir] [--force]  Write the devcontainer template into a project
-                        (default: current directory)
-  sync                  Clone-or-pull the identity repo onto the identity
+  init [dir] [--variant base|node] [--force]
+                        Write the devcontainer template into a project
+                        (default: current directory). Variant auto-detected:
+                        package.json -> node, else base.
+  identity sync         Clone-or-pull the identity repo onto the identity
                         volume, then apply (container only)
-  apply                 Copy identity files from the volume into place,
+  identity apply        Copy identity files from the volume into place,
                         offline (container only)
-  upgrade               Bootstrap or upgrade the shared Claude Code install
+  claude upgrade        Bootstrap or upgrade the shared Claude Code install
                         (container only)
   doctor                Pass/fail checks for this environment, with fixes
 
 Environment:
   ADC_IDENTITY_REPO     Identity repo clone URL
                         (default: git@github.com:dbarjs/identity.git)
+EOF
+}
+
+identity_usage() {
+	cat <<'EOF'
+adc identity — git + SSH identity in containers
+
+Usage: adc identity <command>
+
+Commands:
+  sync   Clone-or-pull the identity repo onto the identity volume, then
+         apply (runs over the forwarded SSH agent; container only)
+  apply  Copy identity files from the volume into place, offline
+         (container only)
+EOF
+}
+
+claude_usage() {
+	cat <<'EOF'
+adc claude — the shared Claude Code install
+
+Usage: adc claude <command>
+
+Commands:
+  upgrade  Bootstrap Claude Code onto the shared install volume if empty,
+           otherwise upgrade it (container only)
 EOF
 }
 
@@ -56,8 +85,9 @@ in_container() {
 	[[ -f /.dockerenv || -f /run/.containerenv || -n "${REMOTE_CONTAINERS:-}" || -n "${CODESPACES:-}" ]]
 }
 
-# sync/apply/upgrade manage container-side state (~/.ssh, ~/.config/git, the
-# shared install volume); on the host they would clobber the real ones.
+# identity sync/apply and claude upgrade manage container-side state (~/.ssh,
+# ~/.config/git, the shared install volume); on the host they would clobber
+# the real ones.
 require_container() {
 	in_container || die "'$1' runs inside a container only — on the host it would overwrite ~/.ssh and ~/.config/git"
 }
@@ -75,10 +105,10 @@ agent_alive() {
 # init
 
 find_template() {
-	local candidate
-	for candidate in "${template_candidates[@]}"; do
-		if [[ -f "$candidate" ]]; then
-			print -r -- "$candidate"
+	local variant="$1" dir
+	for dir in "${template_dirs[@]}"; do
+		if [[ -f "$dir/$variant/devcontainer.json" ]]; then
+			print -r -- "$dir/$variant/devcontainer.json"
 			return 0
 		fi
 	done
@@ -86,10 +116,18 @@ find_template() {
 }
 
 cmd_init() {
-	local force=0 target="" arg
-	for arg in "$@"; do
+	local force=0 target="" variant="" arg
+	while (( $# )); do
+		arg="$1"
+		shift
 		case "$arg" in
 			-f|--force) force=1 ;;
+			--variant)
+				(( $# )) || die "init: --variant needs a value (base|node)"
+				variant="$1"
+				shift
+				;;
+			--variant=*) variant="${arg#--variant=}" ;;
 			-h|--help) usage; return 0 ;;
 			-*) die "init: unknown option '$arg'" ;;
 			*)
@@ -98,10 +136,23 @@ cmd_init() {
 				;;
 		esac
 	done
+	if [[ -n "$variant" && "$variant" != base && "$variant" != node ]]; then
+		die "init: unknown variant '$variant' (expected base or node)"
+	fi
 
 	target="${target:-$PWD}"
 	[[ -d "$target" ]] || die "init: '$target' is not a directory"
 	target="${target:A}"
+
+	if [[ -n "$variant" ]]; then
+		print -r -- "variant: $variant — --variant"
+	elif [[ -f "$target/package.json" ]]; then
+		variant=node
+		print -r -- "variant: node — package.json found"
+	else
+		variant=base
+		print -r -- "variant: base — no package.json"
+	fi
 
 	local name="${target:t}"
 	local dest="$target/.devcontainer/devcontainer.json"
@@ -110,7 +161,7 @@ cmd_init() {
 	fi
 
 	local template
-	template="$(find_template)" || die "init: vendored template not found (looked in: ${(j:, :)template_candidates})"
+	template="$(find_template "$variant")" || die "init: vendored $variant template not found (looked in: ${(j:, :)template_dirs})"
 
 	mkdir -p "${dest:h}"
 	local content
@@ -122,55 +173,55 @@ cmd_init() {
 }
 
 # ---------------------------------------------------------------------------
-# sync / apply
+# identity sync / apply
 
-cmd_sync() {
-	require_container sync
-	agent_alive || die "sync: no SSH agent on SSH_AUTH_SOCK — the clone runs over the forwarded 1Password agent.
+cmd_identity_sync() {
+	require_container "identity sync"
+	agent_alive || die "identity sync: no SSH agent on SSH_AUTH_SOCK — the clone runs over the forwarded 1Password agent.
 Fix: on the Mac, export SSH_AUTH_SOCK to the 1Password socket in ~/.zshrc
 (see the dbarjs/identity README), then rebuild the container connection."
 
 	local repo="${ADC_IDENTITY_REPO:-$identity_repo_default}"
 	if [[ -d "$identity_dir/.git" ]]; then
-		print -r -- "sync: updating identity clone at $identity_dir"
+		print -r -- "identity sync: updating identity clone at $identity_dir"
 		git -C "$identity_dir" pull --ff-only
 	else
-		print -r -- "sync: cloning $repo -> $identity_dir"
+		print -r -- "identity sync: cloning $repo -> $identity_dir"
 		# accept-new: fresh containers have no known_hosts yet; changed keys still fail
 		GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new" \
 			git clone "$repo" "$identity_dir"
 	fi
-	cmd_apply
+	cmd_identity_apply
 }
 
-cmd_apply() {
-	require_container apply
-	[[ -d "$identity_dir/.git" ]] || die "apply: no identity clone at $identity_dir — run 'adc sync' first"
+cmd_identity_apply() {
+	require_container "identity apply"
+	[[ -d "$identity_dir/.git" ]] || die "identity apply: no identity clone at $identity_dir — run 'adc identity sync' first"
 
 	if [[ -d "$identity_dir/ssh" ]]; then
 		mkdir -p "$HOME/.ssh"
 		cp -R "$identity_dir/ssh/." "$HOME/.ssh/"
 		find "$HOME/.ssh" -type d -exec chmod 700 {} +
 		find "$HOME/.ssh" -type f -exec chmod 600 {} +
-		print -r -- "apply: ssh/ -> ~/.ssh (700/600)"
+		print -r -- "identity apply: ssh/ -> ~/.ssh (700/600)"
 	fi
 
 	if [[ -d "$identity_dir/git" ]]; then
 		mkdir -p "$HOME/.config/git"
 		cp -R "$identity_dir/git/." "$HOME/.config/git/"
-		print -r -- "apply: git/ -> ~/.config/git/"
+		print -r -- "identity apply: git/ -> ~/.config/git/"
 	fi
 
-	print -r -- "apply: done"
+	print -r -- "identity apply: done"
 }
 
 # ---------------------------------------------------------------------------
-# upgrade
+# claude upgrade
 
-cmd_upgrade() {
-	require_container upgrade
+cmd_claude_upgrade() {
+	require_container "claude upgrade"
 	if [[ -z "$(ls -A "$claude_install_dir" 2>/dev/null)" ]]; then
-		print -r -- "upgrade: shared install volume is empty; bootstrapping Claude Code"
+		print -r -- "claude upgrade: shared install volume is empty; bootstrapping Claude Code"
 		if [[ -x "$claude_bootstrap" ]]; then
 			"$claude_bootstrap"
 		else
@@ -180,7 +231,7 @@ cmd_upgrade() {
 		# every container mounting the shared volume gets this upgrade
 		local claude_bin
 		claude_bin="$(command -v claude)" || claude_bin="$HOME/.local/bin/claude"
-		[[ -x "$claude_bin" ]] || die "upgrade: install volume is non-empty but no claude binary at $claude_bin"
+		[[ -x "$claude_bin" ]] || die "claude upgrade: install volume is non-empty but no claude binary at $claude_bin"
 		"$claude_bin" update
 	fi
 }
@@ -217,10 +268,10 @@ cmd_doctor() {
 			"export SSH_AUTH_SOCK to the 1Password socket on the host, then rebuild the container connection" \
 			agent_alive
 		check "identity applied (~/.ssh/config)" \
-			"run 'adc sync' (first time) or 'adc apply' (volume already synced)" \
+			"run 'adc identity sync' (first time) or 'adc identity apply' (volume already synced)" \
 			test -f "$HOME/.ssh/config"
 		check "Claude Code installed" \
-			"run 'adc upgrade' to bootstrap the shared install volume" \
+			"run 'adc claude upgrade' to bootstrap the shared install volume" \
 			have_claude
 		check "gh authenticated" \
 			"run 'gh auth login' (persists on the shared gh volume)" \
@@ -250,16 +301,42 @@ cmd_doctor() {
 
 # ---------------------------------------------------------------------------
 
+cmd_identity() {
+	(( $# >= 1 )) || { identity_usage; return 0 }
+	local sub="$1"
+	shift
+	case "$sub" in
+		sync) cmd_identity_sync "$@" ;;
+		apply) cmd_identity_apply "$@" ;;
+		-h|--help|help) identity_usage ;;
+		*) die "unknown command 'identity $sub' (run 'adc identity --help')" ;;
+	esac
+}
+
+cmd_claude() {
+	(( $# >= 1 )) || { claude_usage; return 0 }
+	local sub="$1"
+	shift
+	case "$sub" in
+		upgrade) cmd_claude_upgrade "$@" ;;
+		-h|--help|help) claude_usage ;;
+		*) die "unknown command 'claude $sub' (run 'adc claude --help')" ;;
+	esac
+}
+
 main() {
 	(( $# >= 1 )) || { usage; exit 1 }
 	local cmd="$1"
 	shift
 	case "$cmd" in
 		init) cmd_init "$@" ;;
-		sync) cmd_sync "$@" ;;
-		apply) cmd_apply "$@" ;;
-		upgrade) cmd_upgrade "$@" ;;
+		identity) cmd_identity "$@" ;;
+		claude) cmd_claude "$@" ;;
 		doctor) cmd_doctor "$@" ;;
+		# v1 flat verbs: hard break, each pointing at its new home
+		sync) die "'sync' moved — use 'adc identity sync'" ;;
+		apply) die "'apply' moved — use 'adc identity apply'" ;;
+		upgrade) die "'upgrade' moved — use 'adc claude upgrade'" ;;
 		-h|--help|help) usage ;;
 		*) die "unknown command '$cmd' (run 'adc --help')" ;;
 	esac

@@ -14,7 +14,7 @@ export PATH="$PATH:$HOME/.local/bin"
 # — no network, no agent-timing dependency.
 if [[ -d "$HOME/.local/share/identity/.git" && ! -f "$HOME/.ssh/config" ]] \
     && command -v adc > /dev/null; then
-  adc apply
+  adc identity apply
 fi
 
 # NVM (present only in the node image)
