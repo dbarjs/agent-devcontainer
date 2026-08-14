@@ -62,7 +62,10 @@ format = '\[[$symbol($version)]($style)\]'
 symbol = " "
 format = '\[[$symbol$environment]($style)\]'
 
+# Disabled: prompt parity with the host - inside the devcontainer this module
+# prepends a red " [Docker]" segment the Mac prompt never has.
 [container]
+disabled = true
 symbol = " "
 format = '\[[$symbol \[$name\]]($style)\]'
 
