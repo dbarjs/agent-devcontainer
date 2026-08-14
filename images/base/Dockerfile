@@ -78,6 +78,10 @@ COPY --chown=$USER_UID:$USER_GID dotfiles/starship.toml /home/$USERNAME/.config/
 COPY images/base/claude-bootstrap.sh /usr/local/share/agent-devcontainer/claude-bootstrap.sh
 RUN chmod 755 /usr/local/share/agent-devcontainer/claude-bootstrap.sh
 
+# environment brief at Claude Code's managed-policy memory path (ADR-0010) —
+# loaded first in every in-container session; variant images append to this file
+COPY images/base/environment-brief.md /etc/claude-code/CLAUDE.md
+
 # adc CLI + the vendored template its `init` verb writes
 COPY cli/adc /usr/local/bin/adc
 COPY templates/ /usr/local/share/adc/templates/
