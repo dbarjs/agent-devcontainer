@@ -44,6 +44,10 @@ When your output names a domain concept (in an issue title, a refactor proposal,
 
 If the concept you need isn't in the glossary yet, that's a signal — either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
 
+## Wayfinder decisions become ADRs
+
+When a `/wayfinder` ticket closes on a decision that meets the ADR bar — hard to reverse, surprising without context, the result of a real trade-off — record it as an ADR in `docs/adr/` as part of resolving the ticket (same branch/PR as the ticket's implementation, or its own docs commit for decision-only tickets). The resolution comment and the map hold the discussion; the ADR holds the durable "what and why" with a link back to the ticket. Decisions that miss the bar stay on the map only.
+
 ## Flag ADR conflicts
 
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
