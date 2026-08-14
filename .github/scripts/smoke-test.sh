@@ -13,8 +13,14 @@ run() {
     docker run --rm -e TERM=xterm-256color "$IMAGE_REF" "$@"
 }
 
-echo "(*) Pulling $IMAGE_REF"
-docker pull "$IMAGE_REF"
+# post-publish runs pull the published tag; PR runs (test.yml) test an
+# image just built into the local daemon
+if docker image inspect "$IMAGE_REF" >/dev/null 2>&1; then
+    echo "(*) Using locally built $IMAGE_REF"
+else
+    echo "(*) Pulling $IMAGE_REF"
+    docker pull "$IMAGE_REF"
+fi
 
 echo "(*) Toolchain versions"
 run zsh -ilc 'whoami && sheldon --version && starship --version \
