@@ -86,15 +86,19 @@ jobs:
             grep -q 'linux/arm64' manifest.txt
           done
 
-  smoke:
-    name: Smoke test (${{ matrix.image }})
+  # Post-publish validation (spec: issue #28): tier 2 container assertions
+  # and tier 3 e2e run in parallel on the just-published date tag, native on
+  # both arches. Passing e2e on both arches IS the final validation pass.
+  container-test:
+    name: Tier 2 container (${{ matrix.image }}, ${{ matrix.runner }})
     needs: publish
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         image: [base, node]
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -106,8 +110,74 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Smoke test published image
+      - name: Run tier 2 container assertions
         run: >-
-          .github/scripts/smoke-test.sh
+          tests/container/test.sh --pull
           "$REGISTRY_BASE/${{ matrix.image }}:${{ needs.publish.outputs.date-tag }}"
           "${{ matrix.image }}"
+
+  e2e:
+    name: Tier 3 e2e (${{ matrix.image }}, ${{ matrix.runner }})
+    needs: publish
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [base, node]
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install devcontainer CLI
+        run: npm install -g @devcontainers/cli
+
+      - name: Ensure zsh on the runner
+        run: command -v zsh || (sudo apt-get update -qq && sudo apt-get install -y -qq zsh)
+
+      # exercise the real host entry point: adc init writes the template into
+      # a temp project, then the image ref is pinned to the just-published
+      # date tag. The node leg gets a package.json so postCreateCommand (ni)
+      # has something to install.
+      - name: Init temp project with adc
+        id: project
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          if [ "${{ matrix.image }}" = "node" ]; then
+            printf '{"name":"e2e","version":"0.0.0","private":true}' > "$tmp/package.json"
+          fi
+          zsh cli/adc init "$tmp" --variant "${{ matrix.image }}"
+          sed -i \
+            "s|/${{ matrix.image }}:latest|/${{ matrix.image }}:${{ needs.publish.outputs.date-tag }}|" \
+            "$tmp/.devcontainer/devcontainer.json"
+          grep -F "${{ needs.publish.outputs.date-tag }}" "$tmp/.devcontainer/devcontainer.json"
+          cp -R tests "$tmp/tests"
+          echo "dir=$tmp" >> "$GITHUB_OUTPUT"
+
+      - name: devcontainer up
+        run: >-
+          devcontainer up
+          --workspace-folder "${{ steps.project.outputs.dir }}"
+          --id-label ci-e2e=agent-devcontainer
+
+      - name: Run tier 3 checklist inside the container
+        run: >-
+          devcontainer exec
+          --workspace-folder "${{ steps.project.outputs.dir }}"
+          --id-label ci-e2e=agent-devcontainer
+          bash tests/e2e/test.sh "${{ matrix.image }}"
+
+      - name: Teardown by label
+        if: always()
+        run: |
+          docker ps -aq --filter label=ci-e2e=agent-devcontainer \
+            | xargs -r docker rm -f
