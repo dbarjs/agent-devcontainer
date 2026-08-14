@@ -3,5 +3,12 @@
 	"build": {
 		"dockerfile": "Dockerfile"
 	},
+	"mounts": [
+		{
+			"source": "pnpm-store",
+			"target": "/home/vscode/.local/share/pnpm-store",
+			"type": "volume"
+		}
+	],
 	"remoteUser": "vscode"
 }
