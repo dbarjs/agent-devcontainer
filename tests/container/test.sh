@@ -90,7 +90,7 @@ check_metadata_label() {
     }
     needles="command-history identity claude-bootstrap docker-in-docker anthropic.claude-code"
     if [ "$VARIANT" = "node" ]; then
-        needles="$needles pnpm-store dbaeumer.vscode-eslint"
+        needles="$needles pnpm-store dbaeumer.vscode-eslint NI_DEFAULT_AGENT"
     fi
     for needle in $needles; do
         if ! grep -q "$needle" <<< "$metadata"; then

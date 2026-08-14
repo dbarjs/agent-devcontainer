@@ -31,5 +31,12 @@
 			}
 		}
 	},
+	"containerEnv": {
+		// keep ni deterministic in headless/agent sessions: fall back to pnpm
+		// instead of prompting when a project has no lockfile or packageManager
+		"NI_DEFAULT_AGENT": "pnpm",
+		// corepack fetches project-pinned pnpm/yarn versions without prompting
+		"COREPACK_ENABLE_DOWNLOAD_PROMPT": "0"
+	},
 	"remoteUser": "vscode"
 }

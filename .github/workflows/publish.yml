@@ -145,15 +145,15 @@ jobs:
 
       # exercise the real host entry point: adc init writes the template into
       # a temp project, then the image ref is pinned to the just-published
-      # date tag. The node leg gets a package.json so postCreateCommand (ni)
-      # has something to install.
+      # date tag. The node leg's package.json declares packageManager so the
+      # guarded postCreateCommand actually runs ni (headless — a prompt hangs).
       - name: Init temp project with adc
         id: project
         run: |
           set -euo pipefail
           tmp="$(mktemp -d)"
           if [ "${{ matrix.image }}" = "node" ]; then
-            printf '{"name":"e2e","version":"0.0.0","private":true}' > "$tmp/package.json"
+            printf '{"name":"e2e","version":"0.0.0","private":true,"packageManager":"pnpm@11.21.0"}' > "$tmp/package.json"
           fi
           zsh cli/adc init "$tmp" --variant "${{ matrix.image }}"
           sed -i \
