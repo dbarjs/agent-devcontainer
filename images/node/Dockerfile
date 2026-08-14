@@ -33,3 +33,11 @@ RUN store=/home/vscode/.local/share/pnpm-store \
     && mkdir -p "$store" /home/vscode/.config/pnpm \
     && printf 'store-dir=%s\n' "$store" > /home/vscode/.config/pnpm/rc \
     && printf 'storeDir: %s\n' "$store" > /home/vscode/.config/pnpm/config.yaml
+
+# append the Node section to the base image's environment brief (ADR-0010);
+# managed CLAUDE.md has no drop-in directory, so variants extend the same file
+USER root
+COPY environment-brief.node.md /tmp/environment-brief.node.md
+RUN { echo; cat /tmp/environment-brief.node.md; } >> /etc/claude-code/CLAUDE.md \
+    && rm /tmp/environment-brief.node.md
+USER vscode

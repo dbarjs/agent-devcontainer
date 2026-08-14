@@ -43,6 +43,12 @@ if [ -n "$startup_output" ]; then
     exit 1
 fi
 
+echo "(*) Environment brief baked at the managed CLAUDE.md path"
+run test -s /etc/claude-code/CLAUDE.md
+if [ "$VARIANT" = "node" ]; then
+    run grep -q '^## Node toolchain' /etc/claude-code/CLAUDE.md
+fi
+
 echo "(*) Claude bootstrap script present"
 run test -x /usr/local/share/agent-devcontainer/claude-bootstrap.sh
 
