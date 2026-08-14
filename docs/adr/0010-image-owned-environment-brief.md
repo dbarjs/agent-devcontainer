@@ -1,0 +1,11 @@
+# Image-owned environment brief via managed-policy CLAUDE.md
+
+In-container Claude Code sessions used to rediscover their environment (DinD, shared volumes, no systemd) with exploratory commands every session. The fix is an environment brief baked into the image at `/etc/claude-code/CLAUDE.md` — Claude Code's managed-policy memory scope on Linux, loaded first in every session and concatenated with (never overridden by) user and project CLAUDE.md. The path is deliberately *outside* `~/.claude`: that directory is the shared `claude-config` named volume ([ADR-0005](0005-shared-volumes-for-auth-and-claude-install.md)), where image-shipped content would be shadowed at first mount, go stale as images update, and bleed across every project sharing the volume. `/etc/claude-code/` is plain image filesystem, so the brief refreshes with every image rebuild and stays identical across containers. The base image bakes the brief; variant images append their section to the same file at build time (managed CLAUDE.md has no drop-in directory, unlike `managed-settings.d/`).
+
+Rejected alternatives (per [issue #32](https://github.com/dbarjs/agent-devcontainer/issues/32), `docs/research/claude-system-memory.md` on the `research/claude-system-memory` branch): bootstrapping the brief into the volume (racy across concurrent containers, drifts after image updates), an `--append-system-prompt` wrapper (must ride every invocation; positioned for automation, not interactive use), output styles (deprecated upstream), and the `claudeMd` key in a baked `managed-settings.json` (equivalent precedence, but couples guidance to enforced policy we don't otherwise ship).
+
+## Consequences
+
+The brief's tokens load into every session in every container from these images, so it must stay terse — the content is budgeted at ~20 lines. `CLAUDE_CONFIG_DIR` does not affect `/etc/claude-code/*`, and managed memory cannot be excluded by user settings, so projects cannot opt out — anything written here must hold for all of them.
+
+Decided in [issue #33](https://github.com/dbarjs/agent-devcontainer/issues/33) ([map v2](https://github.com/dbarjs/agent-devcontainer/issues/20)), on mechanics from [issue #32](https://github.com/dbarjs/agent-devcontainer/issues/32); baked in [issue #34](https://github.com/dbarjs/agent-devcontainer/issues/34).
