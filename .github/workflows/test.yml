@@ -1,0 +1,150 @@
+# PR test suite (spec: issue #28). Tier 1 static checks run on every PR;
+# tier 2 builds the images natively per-arch and runs the container
+# assertions, but only when the PR touches something baked into the images.
+# Tier 3 (e2e) never runs on PRs — it lives post-publish in publish.yml.
+name: Test
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY_BASE: ghcr.io/dbarjs/agent-devcontainer
+
+jobs:
+  tier1:
+    name: Tier 1 — static
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # zsh/starship/sheldon are absent from the runner image; sheldon is
+      # pinned to the same release the base image bakes (images/base/Dockerfile)
+      - name: Install zsh, starship, sheldon
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends zsh
+          curl -fsSL https://starship.rs/install.sh \
+            | sudo sh -s -- --yes --bin-dir /usr/local/bin >/dev/null
+          curl -fsSL "https://github.com/rossmacarthur/sheldon/releases/download/0.8.5/sheldon-0.8.5-x86_64-unknown-linux-musl.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin sheldon
+
+      - name: zsh syntax checks
+        run: |
+          zsh -n cli/adc
+          zsh -n adc.plugin.zsh
+          zsh -n dotfiles/zshrc
+
+      - name: shellcheck bash scripts
+        run: git ls-files '*.sh' | xargs -r shellcheck
+
+      - name: Set up bats
+        id: setup-bats
+        uses: bats-core/bats-action@3.0.1
+        with:
+          detik-install: false
+          file-install: false
+
+      - name: adc CLI black-box suite
+        env:
+          BATS_LIB_PATH: ${{ steps.setup-bats.outputs.lib-path }}
+          TERM: xterm
+        run: bats tests/adc
+
+      - name: Validate devcontainer configs
+        run: |
+          npm install -g @devcontainers/cli
+          for dir in templates/base templates/node images/base images/node; do
+            devcontainer read-configuration \
+              --workspace-folder "$dir" --config "$dir/devcontainer.json" >/dev/null
+            echo "ok $dir"
+          done
+
+      # starship exits 0 even on a broken config — the stderr log is the gate
+      - name: starship config renders clean
+        run: |
+          STARSHIP_CONFIG=dotfiles/starship.toml starship print-config \
+            >/dev/null 2>starship-stderr.log
+          if grep -E 'WARN|ERROR' starship-stderr.log; then
+            echo "starship reported config problems:"
+            cat starship-stderr.log
+            exit 1
+          fi
+
+      # offline parse first, then a real lock — also catches dead plugin repos
+      - name: sheldon plugins.toml parses and locks
+        run: |
+          python3 -c 'import tomllib; tomllib.load(open("dotfiles/sheldon/plugins.toml", "rb")); print("TOML parse ok")'
+          sheldon --config-file dotfiles/sheldon/plugins.toml \
+            --data-dir "$(mktemp -d)" lock
+
+  changes:
+    name: Image-touching changes?
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      image: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.image }}
+    steps:
+      - name: Filter changed paths
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            image:
+              - 'images/**'
+              - 'cli/**'
+              - 'dotfiles/**'
+              - 'templates/**'
+              - 'tests/container/**'
+              - '.github/scripts/smoke-test.sh'
+              - '.github/workflows/test.yml'
+
+  tier2:
+    name: Tier 2 — container (${{ matrix.image }}, ${{ matrix.runner }})
+    needs: changes
+    if: needs.changes.outputs.image == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [base, node]
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install devcontainer CLI
+        run: npm install -g @devcontainers/cli
+
+      # Default docker builder on purpose: the image loads straight into the
+      # daemon, and node's `FROM base:latest` then resolves to the PR's base
+      # rather than the published one. Single-arch native, no build cache —
+      # the devcontainer CLI's build command cannot express buildx cache
+      # exports (no --cache-to as of 0.88), and correctness beats warmth here.
+      - name: Build base image
+        run: |
+          devcontainer build \
+            --workspace-folder images/base \
+            --config images/base/devcontainer.json \
+            --image-name "$REGISTRY_BASE/base:latest"
+
+      - name: Build node image on the PR's base
+        if: matrix.image == 'node'
+        run: |
+          devcontainer build \
+            --workspace-folder images/node \
+            --config images/node/devcontainer.json \
+            --image-name "$REGISTRY_BASE/node:latest"
+
+      - name: Container assertions
+        run: >-
+          .github/scripts/smoke-test.sh
+          "$REGISTRY_BASE/${{ matrix.image }}:latest"
+          "${{ matrix.image }}"
