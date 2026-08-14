@@ -53,7 +53,7 @@ Copying identity files from the identity volume into a container's home with tig
 _Avoid_: Symlink, deploy
 
 **adc**:
-The environment-aware CLI this repo ships — baked into images and Sheldon-installable on the host — whose verbs sync and apply identity, upgrade the shared Claude Code, and diagnose setup; container-only verbs refuse to run on the host.
+The environment-aware CLI this repo ships — baked into images and Sheldon-installable on the host — whose noun-grouped commands scaffold projects (`init`, variant auto-detected), sync and apply identity (`identity sync|apply`), upgrade the shared Claude Code (`claude upgrade`), and diagnose setup (`doctor`); container-only commands refuse to run on the host, and the v1 flat verbs hard-error with a pointer to their new names.
 _Avoid_: Helper scripts, devcontainer CLI (that's the external `devcontainer` tool)
 
 **Forwarded agent**:

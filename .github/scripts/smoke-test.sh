@@ -39,9 +39,18 @@ fi
 echo "(*) Claude bootstrap script present"
 run test -x /usr/local/share/agent-devcontainer/claude-bootstrap.sh
 
-echo "(*) adc CLI baked in with its template"
+echo "(*) adc CLI baked in with its templates"
 run adc --help
-run test -f /usr/local/share/adc/templates/devcontainer.json
+run test -f /usr/local/share/adc/templates/base/devcontainer.json
+run test -f /usr/local/share/adc/templates/node/devcontainer.json
+
+echo "(*) v1 flat verbs hard-error with a pointer to the v2 name"
+flat_verb_output="$(run adc sync 2>&1 || true)"
+if ! grep -q "adc identity sync" <<< "$flat_verb_output"; then
+    echo "expected 'adc sync' to point at 'adc identity sync', got:"
+    echo "$flat_verb_output"
+    exit 1
+fi
 
 echo "(*) Devcontainer metadata label"
 metadata="$(docker inspect --format '{{ index .Config.Labels "devcontainer.metadata" }}' "$IMAGE_REF")"
