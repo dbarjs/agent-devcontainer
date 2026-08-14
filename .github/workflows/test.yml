@@ -102,7 +102,7 @@ jobs:
               - 'dotfiles/**'
               - 'templates/**'
               - 'tests/container/**'
-              - '.github/scripts/smoke-test.sh'
+              - 'tests/lib/**'
               - '.github/workflows/test.yml'
 
   tier2:
@@ -145,6 +145,6 @@ jobs:
 
       - name: Container assertions
         run: >-
-          .github/scripts/smoke-test.sh
+          tests/container/test.sh
           "$REGISTRY_BASE/${{ matrix.image }}:latest"
           "${{ matrix.image }}"
