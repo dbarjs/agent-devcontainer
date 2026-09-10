@@ -28,11 +28,17 @@ RUN mkdir -p "$NVM_DIR" \
 # the project root. Point the store at the pnpm-store volume instead (across
 # filesystems pnpm copies rather than hard-links — the price of one shared,
 # persistent store). Written as files, not npm_config_* env, which npm warns
-# on; both dialects because pnpm <=9 reads the ini rc, pnpm >=10 config.yaml.
+# on for pnpm-only keys; both dialects because pnpm <=10 reads only the ini
+# rc and pnpm >=11 only config.yaml (verified in issue #59).
+# script-shell=bash (ADR-0011) rides the same files: pnpm >=11 no longer
+# reads npm_config_* env, so the containerEnv copy only reaches npm and
+# pnpm <=10. bash exec's a single-command script, making the dev server the
+# launcher's direct child so a SIGTERM to `pnpm run` reaches it. pnpm >=12
+# (native binary) forwards no signal at all — see the ADR's limits.
 RUN store=/home/vscode/.local/share/pnpm-store \
     && mkdir -p "$store" /home/vscode/.config/pnpm \
-    && printf 'store-dir=%s\n' "$store" > /home/vscode/.config/pnpm/rc \
-    && printf 'storeDir: %s\n' "$store" > /home/vscode/.config/pnpm/config.yaml
+    && printf 'store-dir=%s\nscript-shell=/bin/bash\n' "$store" > /home/vscode/.config/pnpm/rc \
+    && printf 'storeDir: %s\nscriptShell: /bin/bash\n' "$store" > /home/vscode/.config/pnpm/config.yaml
 
 # append the Node section to the base image's environment brief (ADR-0010);
 # managed CLAUDE.md has no drop-in directory, so variants extend the same file

@@ -19,11 +19,36 @@ fi
 IMAGE_REF="$1"
 VARIANT="$2"
 
+TESTS_LIB="$(cd "$(dirname "$0")" && pwd)/../lib"
 # shellcheck source=tests/lib/test-utils.sh
-. "$(cd "$(dirname "$0")" && pwd)/../lib/test-utils.sh"
+. "$TESTS_LIB/test-utils.sh"
 
 run() {
     docker run --rm -e TERM=xterm-256color "$IMAGE_REF" "$@"
+}
+
+# containerEnv from the image metadata is applied by `devcontainer up`, not by
+# plain `docker run`, so replay it as -e flags: the launcher-kill checks then
+# prove both the mechanism and that the image actually ships it. $1 = a key
+# to leave out (negative control), optional.
+metadata_env_args() {
+    local exclude="${1:-}"
+    docker inspect --format '{{ index .Config.Labels "devcontainer.metadata" }}' "$IMAGE_REF" \
+        | jq -r --arg exclude "$exclude" \
+            '[.[] | .containerEnv // {}] | add // {} | to_entries[]
+             | select(.key != $exclude) | "-e", "\(.key)=\(.value)"'
+}
+
+# tests/lib/launcher-kill.sh inside the container, with the image's own
+# containerEnv (minus $1) and node on PATH via the login zshrc
+run_launcher_kill() {
+    local exclude="$1" arg
+    local -a env_args=()
+    shift
+    while IFS= read -r arg; do env_args+=("$arg"); done < <(metadata_env_args "$exclude")
+    docker run --rm -e TERM=xterm-256color "${env_args[@]}" \
+        -v "$TESTS_LIB:/tests-lib:ro" "$IMAGE_REF" \
+        zsh -ilc 'bash /tests-lib/launcher-kill.sh "$@"' _ "$@"
 }
 
 check_base_toolchain() {
@@ -71,6 +96,35 @@ check_adc_baked() {
     run test -f /usr/local/share/adc/templates/node/devcontainer.json || return 1
 }
 
+# ADR-0011: the node template declares no static forward — a forwardPorts
+# entry would hold a hanging host listener with nothing behind it
+check_node_template_no_forward_ports() {
+    if run grep -q '"forwardPorts"' /usr/local/share/adc/templates/node/devcontainer.json; then
+        echoStderr "baked node template still declares forwardPorts"
+        return 1
+    fi
+}
+
+# ADR-0011: a SIGTERM to the launcher must reach the dev server. Each pnpm
+# major reads script-shell from a different place (rc ini <=10, config.yaml
+# 11, npm_config_* env for npm), so each is pinned and proved on its own.
+# pnpm >=12 is a known orphan (native binary forwards nothing) and is not
+# asserted here.
+check_launcher_kill_pnpm10() {
+    run_launcher_kill "" --pm pnpm@10.15.0 node pnpm run dev
+}
+check_launcher_kill_pnpm11() {
+    run_launcher_kill "" --pm pnpm@11.21.0 node pnpm run dev
+}
+check_launcher_kill_npm() {
+    run_launcher_kill "" node npm run dev
+}
+# negative control: without the env npm's script runs behind `sh -c`, whose
+# dash swallows SIGTERM — proves the probe can see an orphan at all
+check_launcher_kill_npm_control() {
+    run_launcher_kill npm_config_script_shell --expect orphan node npm run dev
+}
+
 check_flat_verb_pointer() {
     local flat_verb_output
     flat_verb_output="$(run adc sync 2>&1 || true)"
@@ -91,6 +145,7 @@ check_metadata_label() {
     needles="command-history identity claude-bootstrap docker-in-docker anthropic.claude-code"
     if [ "$VARIANT" = "node" ]; then
         needles="$needles pnpm-store dbaeumer.vscode-eslint NI_DEFAULT_AGENT"
+        needles="$needles npm_config_script_shell remote.autoForwardPortsSource"
     fi
     for needle in $needles; do
         if ! grep -q "$needle" <<< "$metadata"; then
@@ -116,6 +171,13 @@ check "environment brief baked at /etc/claude-code/CLAUDE.md" check_env_brief
 check "claude-bootstrap.sh present and executable" \
     run test -x /usr/local/share/agent-devcontainer/claude-bootstrap.sh
 check "adc CLI baked in with both templates" check_adc_baked
+if [ "$VARIANT" = "node" ]; then
+    check "node template declares no forwardPorts" check_node_template_no_forward_ports
+    check "SIGTERM to 'pnpm run dev' (pnpm 10) takes the server down" check_launcher_kill_pnpm10
+    check "SIGTERM to 'pnpm run dev' (pnpm 11) takes the server down" check_launcher_kill_pnpm11
+    check "SIGTERM to 'npm run dev' takes the server down" check_launcher_kill_npm
+    check "control: 'npm run dev' without script-shell leaves an orphan" check_launcher_kill_npm_control
+fi
 check "v1 flat verbs hard-error with a pointer to the v2 name" check_flat_verb_pointer
 check "devcontainer.metadata label valid with expected needles" check_metadata_label
 

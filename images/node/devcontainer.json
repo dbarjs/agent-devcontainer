@@ -27,7 +27,10 @@
 				"prettier.enable": false,
 				"prettier.printWidth": 200,
 				"prettier.semi": false,
-				"prettier.singleQuote": true
+				"prettier.singleQuote": true,
+				// pinned so the 20-port autoForwardPortsFallback can never flip
+				// detection to hybrid; forwards track listeners only (ADR-0011)
+				"remote.autoForwardPortsSource": "process"
 			}
 		}
 	},
@@ -36,7 +39,12 @@
 		// instead of prompting when a project has no lockfile or packageManager
 		"NI_DEFAULT_AGENT": "pnpm",
 		// corepack fetches project-pinned pnpm/yarn versions without prompting
-		"COREPACK_ENABLE_DOWNLOAD_PROMPT": "0"
+		"COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
+		// run-scripts execute under bash, which exec's a single command, so the
+		// dev server is the launcher's direct child and dies with it instead of
+		// being orphaned behind a dash `sh -c` layer (ADR-0011). Reaches npm and
+		// pnpm <=10; pnpm >=11 gets the same via ~/.config/pnpm (Dockerfile)
+		"npm_config_script_shell": "/bin/bash"
 	},
 	"remoteUser": "vscode"
 }
