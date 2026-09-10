@@ -80,7 +80,7 @@ wait_until() { # $1 = seconds, rest = predicate
     done
 }
 is_listening() { [ -n "$(listen_inodes)" ]; }
-# shellcheck disable=SC2329 # invoked through wait_until
+# shellcheck disable=SC2317,SC2329 # invoked through wait_until
 not_listening() { ! is_listening; }
 
 if is_listening; then
@@ -127,7 +127,7 @@ if ! wait_until 60 is_listening; then
     exit 1
 fi
 
-# shellcheck disable=SC2329 # invoked through wait_until
+# shellcheck disable=SC2317,SC2329 # invoked through wait_until
 launcher_gone() { ! kill -0 "$launcher_pid" 2>/dev/null; }
 kill -TERM "$launcher_pid"
 if wait_until 10 launcher_gone; then
