@@ -59,3 +59,19 @@ _Avoid_: Helper scripts, devcontainer CLI (that's the external `devcontainer` to
 **Forwarded agent**:
 The host SSH agent (1Password) reaching the container over the Dev Containers extension's own channel, keyed off the host's SSH_AUTH_SOCK — the root of trust for cloning, pushing, and commit signing.
 _Avoid_: Mounted socket, agent socket mount
+
+**Clipboard extension**:
+The private, UI-side VS Code extension that owns Cmd+V in Dev Container windows, translates copied files into container paths, and runs the clipboard daemon.
+_Avoid_: Paste extension, Cmd+V hook
+
+**Clipboard daemon**:
+The host process, owned by the clipboard extension, that answers container-side clipboard reads from the macOS pasteboard.
+_Avoid_: Clipboard service, clipd, host clipboard server
+
+**xclip shim**:
+The image-baked `xclip` stand-in that satisfies Claude Code's Linux clipboard contract by proxying reads to the clipboard daemon.
+_Avoid_: Fake xclip, clipboard proxy
+
+**Coverage**:
+The user-selectable, per-kind gate (images, files, text) on what the host clipboard exposes to containers, applied both to the Cmd+V gesture and to what the clipboard daemon serves.
+_Avoid_: Clipboard permissions, exposure level, policy

@@ -1,0 +1,31 @@
+# Host clipboard readable from containers via a UI-side extension and a read-only xclip shim
+
+[ADR-0003](0003-container-is-the-sandbox.md) keeps everything the host must protect outside the container. This ADR opens one deliberate, bounded hole in that boundary: **the macOS clipboard is readable by any process in an adc container**, so that Claude Code CLI inside a devcontainer gets the host's paste gestures — Cmd+V attaches a clipboard screenshot, Cmd+V of a file copied in the VS Code Explorer or Finder pastes a path the container can read. The exposure is accepted because it is read-only, gated by content kind, and user-selectable; it is worth it because without it every screenshot has to be saved and dragged by hand.
+
+## The exposure
+
+- **Read-only.** Containers can read the host clipboard; nothing adc ships writes to it. `/copy` already reaches the host clipboard through OSC 52 emitted by the terminal, so no write path is needed and none is exposed. The map's charting accepted full read+write; the shipped surface is narrower.
+- **By content kind, not by caller.** The host daemon cannot tell Claude's paste-triggered read from a YOLO agent's own `xclip -o`, so coverage is per kind: `adc.clipboard.images` (on/off), `adc.clipboard.files` (`off | workspace | any`), `adc.clipboard.text` (on/off). Defaults: images on, files `any`, text off. Each key gates both the Cmd+V gesture and what the daemon serves to any container process.
+- **User scope rules the daemon.** Settings are VS Code user settings on the Mac, overridable per workspace, but one daemon serves every container, so it enforces the user-scope value; a workspace override narrows only that window's gesture. Workspace settings can therefore never loosen what the daemon serves.
+
+## The mechanism
+
+- **Channel**: the container-side shim talks HTTP to `host.docker.internal:47820`, a loopback listener on the Mac that OrbStack exposes to bridge, host-network, and DinD-child containers alike. The address is a shim default overridable with `ADC_CLIPD_URL`; image metadata and the template carry nothing.
+- **Clipboard extension**: a private, UI-side VS Code extension (`extensionKind: ["ui"]`) owns Cmd+V under `terminalFocus` in Dev Container windows. VS Code's terminal delivers no bytes for Ctrl+V on macOS and its own Cmd+V pastes nothing for an image, so only a UI-side `\x16` ever makes Claude's Linux build run its image path. The extension reads the pasteboard itself (`osascript -l JavaScript`), applies file-list → file-url → PNG → built-in paste, and is the **sole translator of file paths**: Explorer copies paste the container path from the `vscode-remote` URI, host paths map under a workspace folder's `hostPath` or are transferred through `workspace.fs` to `/tmp/adc-clipboard/<ms>/<name>`. For an image it sends `\x16` and lets Claude drive the shim.
+- **Clipboard daemon**: spawned by the extension on activation, dies with the window; a Node HTTP server in the extension bundle serving `/health`, `/types`, `/png`, `/text`, one `osascript` call per request, stateless. Coverage arrives as spawn arguments; the extension restarts the daemon when settings change. When a file reference is on the pasteboard the daemon never advertises an image (a Finder copy also exposes the file icon as an image). Every Dev Container window supervises the one port: bind, or on `EADDRINUSE` confirm via `/health` that an adc daemon owns it and retry periodically, so the daemon survives its owning window closing.
+- **xclip shim**: one POSIX `sh` script baked into the base image at `/usr/local/bin/xclip`, satisfying Claude Code's Linux clipboard contract (`docs/research/claude-clipboard-contract.md`) with zero Claude changes: `TARGETS`, `image/png`, and text reads proxy to the daemon; write shapes and `primary` exit non-zero as no-ops. Requests are capped at 1.5 s and the daemon being absent is an instant connection refusal, so Ctrl+V never hangs on a plain `docker run` or a CI runner. `wl-paste` and `xsel` must stay off PATH — Claude tries them before `xclip`.
+
+## Rejected alternatives
+
+- **Unix-socket bind mount** as the channel: unsupported under OrbStack (connect → ECONNREFUSED).
+- **launchd user agent** installed by `adc clipboard install`: always-on and VS Code-independent, but needs install/upgrade/remove commands, a Python or shell daemon outside the extension, and a file- or request-based coverage handoff. Its only gain, clipboard reads from non-VS Code terminals, is out of the effort's scope.
+- **Write path** (`POST /text`, `POST /png`, `xclip -i`): validated in the spike, unnecessary given OSC 52, and a fourth coverage axis to justify.
+- **Shim-side file branch** (virtiofs `mountinfo` mapping and byte transfer, as in the spike): a second implementation of host→container mapping and a second writer of the transfer directory; the extension already does it once.
+- **Per-window daemons on distinct ports**: the shim cannot learn its window's port after the container is built.
+- **Fixing the Ctrl+V gesture in VS Code or Claude Code**: the cause of the dropped Ctrl+V is unlocated and the extension is on the route regardless of files.
+
+## Consequences
+
+The clipboard extension is a required host component for the gesture, and the clipboard daemon runs only while a Dev Container window is open; `adc doctor` reports both. A YOLO agent can read whatever the user's coverage allows, so users who paste secrets should leave text coverage off (the default) or narrow files to `workspace`. macOS pasteboard-privacy prompts for background `osascript` readers are unverified; the reader is a child of VS Code, the app being pasted into, which is the most defensible position if one appears.
+
+Decided in [issue #51](https://github.com/dbarjs/agent-devcontainer/issues/51) ([map v3](https://github.com/dbarjs/agent-devcontainer/issues/46)), on the channel research of [issue #47](https://github.com/dbarjs/agent-devcontainer/issues/47), the contract research of [issue #48](https://github.com/dbarjs/agent-devcontainer/issues/48), the pasteboard observation of [issue #49](https://github.com/dbarjs/agent-devcontainer/issues/49), the spike of [issue #50](https://github.com/dbarjs/agent-devcontainer/issues/50) (`spike/clipboard-xclip`), and the gesture decision of [issue #58](https://github.com/dbarjs/agent-devcontainer/issues/58).
