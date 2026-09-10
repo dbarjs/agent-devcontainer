@@ -59,3 +59,15 @@ _Avoid_: Helper scripts, devcontainer CLI (that's the external `devcontainer` to
 **Forwarded agent**:
 The host SSH agent (1Password) reaching the container over the Dev Containers extension's own channel, keyed off the host's SSH_AUTH_SOCK — the root of trust for cloning, pushing, and commit signing.
 _Avoid_: Mounted socket, agent socket mount
+
+**Launcher**:
+The package-manager process (`pnpm dev`, `npm run dev`, `nr dev`) and any shell it inserts between itself and the dev server it starts.
+_Avoid_: Wrapper, parent process (ambiguous with Nuxt's own parent/fork pair)
+
+**Orphaned dev server**:
+A dev server still listening after its launcher was killed, reparented to PID 1; produced when a signal stops at the launcher instead of reaching the server.
+_Avoid_: Zombie (a zombie is a dead process not yet reaped), stale server
+
+**Ghost forward**:
+A VS Code host-side port forward with no listener behind it in the container, which accepts connections and hangs; only closing every forward source removes it, nothing in the container can.
+_Avoid_: Stuck port, dangling tunnel
