@@ -112,6 +112,29 @@ check_env_brief() {
     fi
 }
 
+# ADR-0011: adc init wrote the node template with no static forward; ports
+# come from process auto-forwarding, which tracks live listeners
+check_no_forward_ports() {
+    if grep -q '"forwardPorts"' .devcontainer/devcontainer.json; then
+        echoStderr "initialised template declares forwardPorts"
+        return 1
+    fi
+}
+
+# ADR-0011, generic non-Nuxt proof against a real dev server: vite started
+# by the project's pinned pnpm, then by npm, must die with its launcher. The
+# image's containerEnv is live here (real `devcontainer up`), node comes from
+# the login zshrc. tests/ was copied into the workspace by the e2e job.
+check_vite_dies_with_launcher() {
+    local pm launcher
+    pm="$(jq -r '.packageManager // empty' package.json 2>/dev/null || true)"
+    for launcher in "pnpm run dev" "npm run dev"; do
+        # shellcheck disable=SC2086 # launcher is a word list on purpose
+        zsh -ilc 'bash tests/lib/launcher-kill.sh "$@"' _ \
+            ${pm:+--pm "$pm"} vite $launcher || return 1
+    done
+}
+
 check "running as vscode" test "$(whoami)" = vscode
 check "login shell is zsh" check_login_shell_zsh
 check "interactive zsh starts with zero output" check_zsh_startup_silent
@@ -120,5 +143,9 @@ check "onCreateCommand ran claude-bootstrap" check_claude_bootstrap_ran
 check "docker-in-docker reachable" docker info
 check "adc doctor has the expected CI pass/fail shape" check_adc_doctor_shape
 check "environment brief at /etc/claude-code/CLAUDE.md" check_env_brief
+if [ "$VARIANT" = "node" ]; then
+    check "initialised template declares no forwardPorts" check_no_forward_ports
+    check "SIGTERM to the launcher takes a real vite dev server down" check_vite_dies_with_launcher
+fi
 
 reportResults

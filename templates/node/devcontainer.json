@@ -6,7 +6,8 @@
 			"extensions": [] // project extras; the baseline set comes from image metadata
 		}
 	},
-	"forwardPorts": [3000],
+	// no forwardPorts: ports are auto-forwarded when a listener appears and torn
+	// down when it exits, so nothing hangs after the server stops (ADR-0011)
 	// ni only for projects that declare their package manager — without a
 	// lockfile or packageManager field it prompts, which hangs headless creates
 	"postCreateCommand": "if jq -e .packageManager package.json >/dev/null 2>&1; then ni; fi"
