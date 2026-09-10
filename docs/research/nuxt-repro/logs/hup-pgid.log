@@ -1,0 +1,23 @@
+
+> nuxt-repro@ dev /workspaces/nuxt-repro
+> nuxt dev
+
+│
+●  Nuxt 4.5.2 (with Nitro 2.13.4, Vite 8.3.0 and Vue 3.5.42)
+
+  ➜ Local:    http://localhost:3000/
+  ➜ Network:  use --host to expose
+
+  ➜ DevTools: press Shift + Alt + D in the browser (v3.4.2)
+
+
+ WARN  Plugin "nuxt:devtools:config-retriever" defines Vite-specific hooks (configResolved) in a plugin returned from applyToEnvironment. These hooks will be ignored.
+
+✔ Vite client built in 33ms
+
+ WARN  Plugin "nuxt:devtools:config-retriever" defines Vite-specific hooks (configResolved) in a plugin returned from applyToEnvironment. These hooks will be ignored. (x2)
+
+✔ Vite server built in 11ms
+[nitro] ✔ Nuxt Nitro server built in 525ms
+ℹ Vite server warmed up in 9ms
+ℹ Vite client warmed up in 17ms

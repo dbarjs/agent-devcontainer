@@ -1,0 +1,8 @@
+{
+  "name": "nuxt-repro",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.15.0",
+  "scripts": { "dev": "nuxt dev", "build": "nuxt build" },
+  "dependencies": { "nuxt": "^4", "vue": "^3" }
+}

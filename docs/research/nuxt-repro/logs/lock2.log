@@ -1,0 +1,30 @@
+
+> nuxt-repro@ dev /workspaces/nuxt-repro
+> nuxt dev
+
+
+ ERROR 
+Another Nuxt dev server is already running:
+
+  URL:     http://localhost:3000
+  PID:     14492
+  Dir:     /workspaces/nuxt-repro
+  Started: 9/10/2026, 5:37:57 PM
+
+Run kill 14492 to stop it, or connect to http://localhost:3000
+Set NUXT_IGNORE_LOCK=1 to bypass this check.
+
+
+
+ ERROR  Another Nuxt dev is already running (PID 14492).
+
+    at #acquireDevLock (node_modules/.pnpm/@nuxt+cli@3.37.0_@nuxt+schema@4.5.2_magicast@0.5.4/node_modules/@nuxt/cli/dist/dev-DHhrJk9w.mjs:580:10)
+    at NuxtDevServer.init (node_modules/.pnpm/@nuxt+cli@3.37.0_@nuxt+schema@4.5.2_magicast@0.5.4/node_modules/@nuxt/cli/dist/dev-DHhrJk9w.mjs:404:23)
+    at async initialize (node_modules/.pnpm/@nuxt+cli@3.37.0_@nuxt+schema@4.5.2_magicast@0.5.4/node_modules/@nuxt/cli/dist/dev-DHhrJk9w.mjs:753:2)
+    at async Object.run (node_modules/.pnpm/@nuxt+cli@3.37.0_@nuxt+schema@4.5.2_magicast@0.5.4/node_modules/@nuxt/cli/dist/dev-Cbii5ek4.mjs:198:51)
+    at async runCommand (node_modules/.pnpm/citty@0.2.2/node_modules/citty/dist/index.mjs:228:47)
+    at async runCommand (node_modules/.pnpm/citty@0.2.2/node_modules/citty/dist/index.mjs:217:5)
+    at async runMain (node_modules/.pnpm/citty@0.2.2/node_modules/citty/dist/index.mjs:394:10) 
+
+
+ ELIFECYCLE  Command failed with exit code 1.
