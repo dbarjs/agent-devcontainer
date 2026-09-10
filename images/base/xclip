@@ -1,0 +1,113 @@
+#!/bin/sh
+# xclip shim (ADR-0012): the read-only `xclip` stand-in baked into every adc
+# image at /usr/local/bin/xclip. Claude Code's Linux build shells out to xclip
+# on paste (docs/research/claude-clipboard-contract.md, section 6); this shim
+# answers those calls by proxying to the clipboard daemon the clipboard
+# extension runs on the Mac, reachable from any OrbStack container at
+# host.docker.internal:47820. ADC_CLIPD_URL overrides the daemon address.
+#
+#   -t TARGETS -o     GET /types  -> prints the targets it can deliver
+#   -t image/png -o   GET /png    -> PNG bytes on stdout; exit 1 without a PNG
+#   -o | -t text/plain -o   GET /text -> clipboard text; exit 1 without text
+#   -selection primary, -i <file>, stdin writes   no-ops, exit 1
+#
+# stdout is the contract and carries nothing but clipboard content; one terse
+# line goes to stderr on failure. Every request is capped at 1.5 s, and a
+# missing daemon is an immediate refusal, so a paste never hangs on a plain
+# `docker run` or a CI runner. Files are not this shim's business: the
+# clipboard extension turns a copied file into a container path before Claude
+# ever asks the clipboard for anything.
+set -u
+
+CLIPD_URL="${ADC_CLIPD_URL:-http://host.docker.internal:47820}"
+CLIPD_URL="${CLIPD_URL%/}"
+
+fail() {
+	printf 'xclip: %s\n' "$*" >&2
+	exit 1
+}
+
+# GET $1 with the whole request (DNS, connect, transfer) capped at 1.5 s.
+fetch() {
+	curl -4 -sf --max-time 1.5 "$CLIPD_URL$1"
+}
+
+# GET $1 to stdout, byte for byte, but only once the daemon has answered
+# with a non-empty body: a 200 with nothing in it must not exit 0 (Claude
+# checks the exit code alone, and an empty PNG would be a silent failure).
+deliver() {
+	tmp="$(mktemp "${TMPDIR:-/tmp}/xclip.XXXXXX")" || fail "cannot create a temporary file"
+	trap 'rm -f "$tmp"' EXIT
+	if fetch "$1" >"$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+		cat "$tmp"
+		exit 0
+	fi
+	return 1
+}
+
+# Writes are no-ops, but drain a piped stdin so the writer never sees EPIPE.
+drain_stdin() {
+	[ -t 0 ] || cat >/dev/null
+}
+
+selection=clipboard
+target=
+out=0
+in=0
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-selection | -sel | -select)
+			[ $# -ge 2 ] || fail "$1 needs an argument"
+			selection="$2"
+			shift 2
+			;;
+		-t | -target)
+			[ $# -ge 2 ] || fail "$1 needs an argument"
+			target="$2"
+			shift 2
+			;;
+		-o | -out)
+			out=1
+			shift
+			;;
+		-i | -in)
+			in=1
+			[ $# -ge 2 ] && shift
+			shift
+			;;
+		*)
+			shift
+			;;
+	esac
+done
+
+if [ "$out" -eq 0 ]; then
+	# shapes 7-9: `xclip -selection clipboard` (stdin) and `-t image/png -i <file>`
+	[ "$in" -eq 1 ] || drain_stdin
+	fail "writes are not supported (the host clipboard is read-only from containers)"
+fi
+
+case "$selection" in
+	clipboard | CLIPBOARD) ;;
+	*) fail "selection '$selection' is not available" ;;
+esac
+
+case "$target" in
+	TARGETS)
+		types="$(fetch /types 2>/dev/null)" || fail "clipboard daemon unreachable at $CLIPD_URL"
+		# Only advertise what /png and /text can actually deliver: any line
+		# matching image/* makes Claude run the save step.
+		case "$types" in *image/png*) printf 'image/png\n' ;; esac
+		case "$types" in *text/plain*) printf 'text/plain\nUTF8_STRING\n' ;; esac
+		exit 0
+		;;
+	image/png)
+		deliver /png || fail "no image on the host clipboard"
+		;;
+	"" | text/plain | UTF8_STRING | STRING)
+		deliver /text || fail "no text on the host clipboard"
+		;;
+	*)
+		fail "target '$target' is not available"
+		;;
+esac

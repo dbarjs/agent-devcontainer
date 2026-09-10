@@ -40,8 +40,10 @@ jobs:
           zsh -n adc.plugin.zsh
           zsh -n dotfiles/zshrc
 
-      - name: shellcheck bash scripts
-        run: git ls-files '*.sh' | xargs -r shellcheck
+      - name: shellcheck bash scripts and the xclip shim
+        run: |
+          git ls-files '*.sh' | xargs -r shellcheck
+          shellcheck images/base/xclip
 
       - name: Set up bats
         id: setup-bats
@@ -55,6 +57,13 @@ jobs:
           BATS_LIB_PATH: ${{ steps.setup-bats.outputs.lib-path }}
           TERM: xterm
         run: bats tests/adc
+
+      # the shim under the runner's /bin/sh (dash), against tests/lib/fake-clipd.py
+      - name: xclip shim suite
+        env:
+          BATS_LIB_PATH: ${{ steps.setup-bats.outputs.lib-path }}
+          TERM: xterm
+        run: bats tests/xclip
 
       - name: Validate devcontainer configs
         run: |

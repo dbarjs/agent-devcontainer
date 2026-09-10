@@ -5,3 +5,4 @@
 - `~/.claude`, `~/.config/gh`, `~/.local/state/history`, and the Claude Code install are named volumes shared across ALL containers from this image — auth and history persist, and deleting or reconfiguring there affects every project.
 - No systemd: `systemctl`/`service` do not work; start processes directly.
 - Claude Code autoupdate is disabled (shared install volume) — upgrade via `adc claude upgrade`, never `claude update`.
+- Host clipboard: Cmd+V in the VS Code terminal pastes from the Mac — a screenshot attaches as an image, a file copied in the Explorer or Finder pastes as a path readable here; `/copy` reaches the host clipboard. `xclip` is a read-only shim to the host, not X11; a "no image" toast means the host-side clipboard daemon is not running.
