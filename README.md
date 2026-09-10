@@ -46,4 +46,5 @@ Bare `adc identity` or `adc claude` prints that group's help. The v1 flat verbs 
 - `images/` — prebuild definitions for the `base` and `node` images.
 - `dotfiles/` — container-adapted rc files (zshrc, Sheldon plugins, Starship) baked into the images.
 - `cli/` — the `adc` CLI (`init`, `identity sync|apply`, `claude upgrade`, `doctor`).
+- `extensions/clipboard/` — the clipboard extension (ADR-0012): the host-side VS Code extension that runs the clipboard daemon the image-baked `xclip` shim talks to.
 - `CONTEXT.md` — domain glossary; `docs/adr/` — decisions.

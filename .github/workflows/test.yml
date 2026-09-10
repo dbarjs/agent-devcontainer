@@ -65,6 +65,11 @@ jobs:
           TERM: xterm
         run: bats tests/xclip
 
+      # the clipboard daemon's contract, including the real shim under sh + curl
+      - name: clipboard extension suite
+        working-directory: extensions/clipboard
+        run: npm test
+
       - name: Validate devcontainer configs
         run: |
           npm install -g @devcontainers/cli
