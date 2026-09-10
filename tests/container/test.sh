@@ -85,8 +85,63 @@ check_zsh_startup_silent() {
 
 check_env_brief() {
     run test -s /etc/claude-code/CLAUDE.md || return 1
+    run grep -q '^- Host clipboard:' /etc/claude-code/CLAUDE.md || return 1
     if [ "$VARIANT" = "node" ]; then
         run grep -q '^## Node toolchain' /etc/claude-code/CLAUDE.md || return 1
+    fi
+}
+
+# ADR-0012: the xclip shim is the only clipboard tool on PATH — wl-paste and
+# xsel would be picked ahead of it by Claude Code's paste path
+check_xclip_shim_baked() {
+    local which_xclip
+    which_xclip="$(run zsh -ilc 'command -v xclip')" || return 1
+    if [ "$which_xclip" != "/usr/local/bin/xclip" ]; then
+        echoStderr "xclip resolves to '$which_xclip', expected /usr/local/bin/xclip"
+        return 1
+    fi
+    run test -x /usr/local/bin/xclip || return 1
+    run head -c 200 /usr/local/bin/xclip | grep -q '^#!/bin/sh' || return 1
+    local stray
+    if stray="$(run zsh -ilc 'command -v wl-paste wl-copy xsel')"; then
+        echoStderr "clipboard tools on PATH that would shadow the shim: $stray"
+        return 1
+    fi
+}
+
+# ADR-0012: with no daemon reachable (plain docker run, no OrbStack host
+# service) every read shape must fail within the 1.5 s cap, print nothing on
+# stdout, and never leave Claude's paste spinner hanging. Both TARGETS
+# (shape 1, exit code irrelevant to Claude but stdout must be empty) and the
+# PNG save (shape 2, exit must be non-zero) are timed under dash, the
+# image's /bin/sh.
+check_xclip_shim_fails_fast() {
+    local out started ended
+    started=$(date +%s)
+    out="$(run timeout 10 xclip -selection clipboard -t TARGETS -o 2>/dev/null || true)"
+    ended=$(date +%s)
+    if [ -n "$out" ]; then
+        echoStderr "TARGETS printed '$out' with no daemon"
+        return 1
+    fi
+    if [ $((ended - started)) -gt 4 ]; then
+        echoStderr "TARGETS took $((ended - started)) s with no daemon"
+        return 1
+    fi
+    started=$(date +%s)
+    if out="$(run timeout 10 xclip -selection clipboard -t image/png -o 2>/dev/null)"; then
+        echoStderr "image/png exited 0 with no daemon"
+        return 1
+    fi
+    ended=$(date +%s)
+    if [ -n "$out" ] || [ $((ended - started)) -gt 4 ]; then
+        echoStderr "image/png printed '$out' / took $((ended - started)) s with no daemon"
+        return 1
+    fi
+    # writes are refused outright, no daemon involved
+    if run sh -c 'printf x | xclip -selection clipboard' 2>/dev/null; then
+        echoStderr "stdin write to xclip exited 0"
+        return 1
     fi
 }
 
@@ -170,6 +225,8 @@ check "interactive zsh starts with zero output" check_zsh_startup_silent
 check "environment brief baked at /etc/claude-code/CLAUDE.md" check_env_brief
 check "claude-bootstrap.sh present and executable" \
     run test -x /usr/local/share/agent-devcontainer/claude-bootstrap.sh
+check "xclip shim on PATH, no wl-paste/wl-copy/xsel" check_xclip_shim_baked
+check "xclip shim fails fast without a clipboard daemon" check_xclip_shim_fails_fast
 check "adc CLI baked in with both templates" check_adc_baked
 if [ "$VARIANT" = "node" ]; then
     check "node template declares no forwardPorts" check_node_template_no_forward_ports

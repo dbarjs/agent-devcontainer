@@ -82,6 +82,12 @@ RUN chmod 755 /usr/local/share/agent-devcontainer/claude-bootstrap.sh
 # loaded first in every in-container session; variant images append to this file
 COPY images/base/environment-brief.md /etc/claude-code/CLAUDE.md
 
+# xclip shim (ADR-0012): Claude Code's paste path calls xclip, which here
+# proxies read-only to the clipboard daemon on the Mac. wl-paste/wl-copy/xsel
+# must never be installed — Claude tries them before xclip.
+COPY images/base/xclip /usr/local/bin/xclip
+RUN chmod 755 /usr/local/bin/xclip
+
 # adc CLI + the vendored template its `init` verb writes
 COPY cli/adc /usr/local/bin/adc
 COPY templates/ /usr/local/share/adc/templates/
