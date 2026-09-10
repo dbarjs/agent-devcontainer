@@ -1,0 +1,86 @@
+#!/bin/sh
+# PROTOTYPE — throwaway `xclip` shim for the Ctrl+V spike (issue #50).
+# Proxies Claude Code's Linux clipboard calls (docs/research/claude-clipboard-contract.md §6)
+# to the host daemon at http://host.docker.internal:47820 (spike/clipboard/host/adc-clipd).
+# stdout is the contract; diagnostics go to stderr (and $ADC_XCLIP_LOG if set).
+set -u
+HOST="${ADC_CLIPD_URL:-http://host.docker.internal:${ADC_CLIPD_PORT:-47820}}"
+XFER_DIR="${ADC_CLIP_DIR:-/tmp/adc-clipboard}"
+LOG="${ADC_XCLIP_LOG:-}"
+
+log() { [ -n "$LOG" ] && printf '%s xclip %s :: %s\n' "$(date +%T.%N | cut -c1-12)" "$ARGS" "$*" >>"$LOG"; printf 'xclip: %s\n' "$*" >&2; }
+get() { curl -4 -sf --max-time 1.5 "$HOST$1"; }
+
+ARGS="$*"
+sel=clipboard target= out=0 infile=
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-selection|-sel) sel="$2"; shift 2 ;;
+		-t|-target) target="$2"; shift 2 ;;
+		-o|-out) out=1; shift ;;
+		-i|-in) infile="$2"; shift 2 ;;
+		*) shift ;;
+	esac
+done
+
+# Map a host POSIX path onto a container path via virtiofs mounts (OrbStack exposes the
+# host source in mountinfo). Falls through to a copy into $XFER_DIR when no mount matches.
+host_to_container() {
+	hp="$1"
+	while read -r line; do
+		# fields 4/5 are root and mountpoint; the fs type follows the " - " separator
+		# (optional fields before it vary in count, so don't count positionally).
+		case "$line" in *" - virtiofs "*) ;; *) continue ;; esac
+		set -- $line; root="$4"; mnt="$5"
+		case "$hp" in
+			"$root"/*) printf '%s%s\n' "$mnt" "${hp#"$root"}"; return 0 ;;
+			"$root")   printf '%s\n' "$mnt"; return 0 ;;
+		esac
+	done </proc/self/mountinfo
+	return 1
+}
+
+read_text() {
+	types=$(get /types) || { log "types: daemon unreachable"; return 1; }
+	case "$types" in
+		*file*)
+			meta=$(get /file) || return 1
+			hp=$(printf '%s' "$meta" | sed -n 's/.*"path": *"\([^"]*\)".*/\1/p')
+			name=$(printf '%s' "$meta" | sed -n 's/.*"name": *"\([^"]*\)".*/\1/p')
+			if cp=$(host_to_container "$hp") && [ -e "$cp" ]; then
+				log "file $hp -> mapped $cp"
+			else
+				mkdir -p "$XFER_DIR" && cp="$XFER_DIR/$name"
+				get /file/bytes >"$cp" || { log "file transfer failed"; return 1; }
+				log "file $hp -> transferred $cp ($(wc -c <"$cp") bytes)"
+			fi
+			printf '%s\n' "$cp"; return 0 ;;
+	esac
+	get /text && printf '\n' || { log "no text on clipboard"; return 1; }
+}
+
+if [ "$sel" = primary ]; then
+	# PRIMARY is meaningless here: reads print nothing, writes are swallowed.
+	[ "$out" = 0 ] && cat >/dev/null
+	log "primary: no-op"; exit 1
+fi
+
+if [ "$out" = 1 ]; then
+	case "$target" in
+		TARGETS)
+			types=$(get /types) || { log "types: daemon unreachable"; exit 1; }
+			log "types=[$(printf '%s' "$types" | tr '\n' ' ')]"
+			case "$types" in *image/png*) printf 'image/png\n' ;; esac
+			case "$types" in *text/plain*|*file*) printf 'text/plain\nUTF8_STRING\n' ;; esac
+			exit 0 ;;
+		image/png)
+			if get /png; then log "png ok"; exit 0; else log "no png"; exit 1; fi ;;
+		image/*) log "unsupported target $target"; exit 1 ;;
+		""|text/plain|UTF8_STRING|STRING) read_text ;;
+		*) log "unknown target $target"; exit 1 ;;
+	esac
+elif [ -n "$infile" ]; then
+	curl -4 -sf --max-time 3 -X POST --data-binary "@$infile" "$HOST/png" && { log "set png from $infile"; exit 0; } || exit 1
+else
+	curl -4 -sf --max-time 1.5 -X POST --data-binary @- "$HOST/text" && { log "set text"; exit 0; } || exit 1
+fi

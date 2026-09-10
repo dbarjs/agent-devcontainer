@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""PROTOTYPE — throwaway host clipboard service for the Ctrl+V spike (issue #50).
+
+Binds 127.0.0.1:47820 and answers a container-side `xclip` shim over
+http://host.docker.internal:47820. Every request shells out to one JXA
+(osascript -l JavaScript) snippet against NSPasteboard.
+
+  GET  /types       -> newline list, priority order: file, image/png, text/plain
+  GET  /png         -> PNG bytes (TIFF converted host-side), 404 if no image
+  GET  /text        -> clipboard text, 404 if none
+  GET  /file        -> JSON {"path": <POSIX path>, "name": ...} of the first
+                       public.file-url item, 404 if none
+  GET  /file/bytes  -> the bytes of that file
+  POST /text        -> set clipboard text from body
+  POST /png         -> set clipboard image from PNG body
+
+Run: python3 spike/clipboard/host/adc-clipd   (foreground, Ctrl+C to stop)
+"""
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+PORT = int(os.environ.get("ADC_CLIPD_PORT", "47820"))
+
+JXA_PRELUDE = 'ObjC.import("AppKit"); ObjC.import("Foundation"); const pb = $.NSPasteboard.generalPasteboard;'
+
+
+def jxa(body):
+    """Run a JXA snippet; it must end in an expression that is a JSON string."""
+    r = subprocess.run(
+        ["osascript", "-l", "JavaScript", "-e", JXA_PRELUDE + body],
+        capture_output=True, text=True, timeout=5,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip())
+    return json.loads(r.stdout)
+
+
+def types():
+    t = jxa("JSON.stringify(ObjC.deepUnwrap(pb.types) || [])")
+    out = []
+    # file-reference check FIRST: Finder copies also expose the file icon as public.png (#49)
+    if "public.file-url" in t:
+        out.append("file")
+    if "public.png" in t or "public.tiff" in t:
+        out.append("image/png")
+    if "public.utf8-plain-text" in t or "NSStringPboardType" in t:
+        out.append("text/plain")
+    return out, t
+
+
+def png_to(path):
+    """Write the clipboard image as PNG to `path`. Returns True if written."""
+    return jxa(f'''
+      let d = pb.dataForType("public.png");
+      if (!d || d.isNil()) {{
+        const tiff = pb.dataForType("public.tiff");
+        if (!tiff || tiff.isNil()) {{ JSON.stringify(false) }}
+        else {{
+          const rep = $.NSBitmapImageRep.imageRepWithData(tiff);
+          d = rep.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $());
+        }}
+      }}
+      JSON.stringify(d && !d.isNil() ? !!d.writeToFileAtomically({json.dumps(path)}, true) : false)
+    ''')
+
+
+def text():
+    return jxa('const s = pb.stringForType("public.utf8-plain-text"); JSON.stringify(s.isNil() ? null : ObjC.unwrap(s))')
+
+
+def file_url():
+    return jxa('''
+      const items = ObjC.unwrap(pb.pasteboardItems); let out = null;
+      for (const it of items) {
+        const u = it.stringForType("public.file-url");
+        if (!u.isNil()) { out = ObjC.unwrap($.NSURL.URLWithString(u).path); break; }
+      }
+      JSON.stringify(out)
+    ''')
+
+
+def set_text(s):
+    subprocess.run(["pbcopy"], input=s.encode(), check=True)
+
+
+def set_png(path):
+    jxa(f'pb.clearContents; JSON.stringify(!!pb.setDataForType($.NSData.dataWithContentsOfFile({json.dumps(path)}), "public.png"))')
+
+
+class H(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        sys.stderr.write("[clipd %s] %s\n" % (time.strftime("%H:%M:%S"), fmt % args))
+
+    def send(self, code, body=b"", ctype="text/plain"):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        t0 = time.monotonic()
+        try:
+            if self.path == "/types":
+                kinds, raw = types()
+                self.log_message("types raw=%s -> %s", raw, kinds)
+                self.send(200, ("\n".join(kinds) + "\n").encode() if kinds else b"")
+            elif self.path == "/png":
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+                    tmp = f.name
+                try:
+                    if png_to(tmp):
+                        self.send(200, open(tmp, "rb").read(), "image/png")
+                    else:
+                        self.send(404, b"no image on clipboard\n")
+                finally:
+                    os.unlink(tmp)
+            elif self.path == "/text":
+                s = text()
+                self.send(200, s.encode()) if s is not None else self.send(404, b"no text\n")
+            elif self.path == "/file":
+                p = file_url()
+                if p:
+                    self.send(200, json.dumps({"path": p, "name": os.path.basename(p), "size": os.path.getsize(p)}).encode(), "application/json")
+                else:
+                    self.send(404, b"no file on clipboard\n")
+            elif self.path == "/file/bytes":
+                p = file_url()
+                self.send(200, open(p, "rb").read(), "application/octet-stream") if p else self.send(404, b"no file\n")
+            else:
+                self.send(404, b"unknown\n")
+        except Exception as e:  # prototype: surface, don't handle
+            self.log_message("ERROR %s", e)
+            self.send(500, str(e).encode())
+        self.log_message("%s took %.0f ms", self.path, (time.monotonic() - t0) * 1000)
+
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(n)
+        try:
+            if self.path == "/text":
+                set_text(body.decode())
+                self.send(204)
+            elif self.path == "/png":
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+                    f.write(body); tmp = f.name
+                try:
+                    set_png(tmp); self.send(204)
+                finally:
+                    os.unlink(tmp)
+            else:
+                self.send(404, b"unknown\n")
+        except Exception as e:
+            self.log_message("ERROR %s", e)
+            self.send(500, str(e).encode())
+
+
+if __name__ == "__main__":
+    srv = ThreadingHTTPServer(("127.0.0.1", PORT), H)
+    sys.stderr.write(f"[clipd] listening on 127.0.0.1:{PORT} (containers: host.docker.internal:{PORT})\n")
+    srv.serve_forever()
