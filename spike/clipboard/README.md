@@ -57,9 +57,11 @@ Facts learned on the way:
 - macOS 15.7.5 shows no pasteboard-privacy prompt for `osascript` reads from a foreground daemon (launchd agent still
   unverified — that's macOS 16 territory anyway).
 
-## Not verified by this spike (needs a human at the VS Code integrated terminal)
+## Human checks in the VS Code integrated terminal (2026-09-10)
 
-1. Ctrl+V in `claude` in the **VS Code integrated terminal** of the Dev Container window (does the terminal pass `\x16` through?).
-2. Cmd+V after a **Finder** Cmd+C: VS Code pastes the bare filename — the `basename` branch then calls
-   `xclip -t text/plain -o` and should attach the file. Explorer Cmd+C pastes nothing (#49) — that gesture is #58.
-3. `/copy` → OSC 52 → macOS clipboard from a Dev Container terminal. If it works, shim shapes 7/8 (and `DISPLAY`) are unnecessary.
+1. Ctrl+V in `claude`: **nothing** — a raw-mode reader in the same terminal receives no bytes for Ctrl+V, on the host VS Code
+   terminal and in the container one. VS Code binds only Cmd+V on macOS and xterm.js maps Ctrl+V → `\x16`; cause unlocated.
+   Consequence: the image gesture in VS Code is Cmd+V, which the Linux build ignores (empty paste) — UI-side interception
+   must send `\x16`. Folded into #58.
+2. Finder Cmd+C → Cmd+V in `claude`: **`[Image #N]`** via the basename branch and this shim's file transfer.
+3. `/copy` → host `pbpaste`: **works with no daemon request** — OSC 52 alone; shapes 7/8 and `DISPLAY` are unnecessary.

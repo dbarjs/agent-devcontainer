@@ -70,8 +70,13 @@ if [ "$out" = 1 ]; then
 		TARGETS)
 			types=$(get /types) || { log "types: daemon unreachable"; exit 1; }
 			log "types=[$(printf '%s' "$types" | tr '\n' ' ')]"
-			case "$types" in *image/png*) printf 'image/png\n' ;; esac
-			case "$types" in *text/plain*|*file*) printf 'text/plain\nUTF8_STRING\n' ;; esac
+			# A copied file wins over an image: Finder copies also carry the file icon as TIFF (#49),
+			# and a copied image file attaches via the path branch (sourcePath) anyway.
+			case "$types" in
+				*file*) printf 'text/plain\nUTF8_STRING\n' ;;
+				*) case "$types" in *image/png*) printf 'image/png\n' ;; esac
+				   case "$types" in *text/plain*) printf 'text/plain\nUTF8_STRING\n' ;; esac ;;
+			esac
 			exit 0 ;;
 		image/png)
 			if get /png; then log "png ok"; exit 0; else log "no png"; exit 1; fi ;;
