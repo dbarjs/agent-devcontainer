@@ -1,3 +1,7 @@
 # Claude Code local state
 .claude/settings.local.json
 .claude/worktrees/
+
+# clipboard extension packaging
+extensions/*/node_modules/
+*.vsix

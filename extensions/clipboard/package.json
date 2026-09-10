@@ -1,0 +1,64 @@
+{
+  "name": "adc-clipboard",
+  "displayName": "adc clipboard",
+  "description": "Host clipboard parity for Claude Code inside adc devcontainers: runs the clipboard daemon the xclip shim talks to, and owns Cmd+V in Dev Container windows.",
+  "version": "0.1.0",
+  "publisher": "dbarjs",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dbarjs/agent-devcontainer.git",
+    "directory": "extensions/clipboard"
+  },
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=18"
+  },
+  "extensionKind": [
+    "ui"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "adc clipboard",
+      "properties": {
+        "adc.clipboard.images": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Let containers read images from the host clipboard, and let Cmd+V in a Dev Container terminal attach a clipboard screenshot to Claude Code. The daemon enforces the **user** value; a workspace override affects only that window's Cmd+V."
+        },
+        "adc.clipboard.files": {
+          "type": "string",
+          "enum": [
+            "off",
+            "workspace",
+            "any"
+          ],
+          "enumDescriptions": [
+            "Cmd+V never pastes a copied file's path.",
+            "Only files already inside the container (Explorer copies, or host paths under a workspace folder) paste as a path; nothing is transferred.",
+            "Any copied host file is transferred into the container under /tmp/adc-clipboard and pastes as that path."
+          ],
+          "default": "any",
+          "markdownDescription": "How Cmd+V in a Dev Container terminal handles a copied file. The daemon never serves file contents; this gates the gesture only."
+        },
+        "adc.clipboard.text": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Let container processes read the host clipboard's text (`xclip -o`). VS Code's own text paste and `/copy` are unaffected. The daemon enforces the **user** value."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "daemon": "node bin/adc-clipd.js"
+  }
+}
